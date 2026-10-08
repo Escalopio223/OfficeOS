@@ -25,7 +25,6 @@ un volumen de + 100.000 archivos sintéticos y procesamiento en segundo plano de
   ___
 
   ## Stack tecnológico
-____________________________________________________________________________________________
 | Capa | Tecnologías |
 | :--- | :--- |
 | **Frontend** | Vue 3 (Composition API), TypeScript, Pinia, Tailwind CSS, Vite |
