@@ -25,15 +25,14 @@ un volumen de + 100.000 archivos sintéticos y procesamiento en segundo plano de
   ___
 
   ## Stack tecnológico
-  ___________________________________________________________________________________________________
-  |                                                                                                 |
-  |         Capa         | Tecnologías                                                              |
-  |       Frontend       | Vue 3 (Composition API), TypeScript, Pinia, TailwindCSS, Vite            |
-  |        Backend       | Node.js, Express, TypeScript, Zod, Arquitectura en capas/Vertical Slices |
-  | Persistencia y Caché | PostgreSQL (Extensiones: `ltree`, `pg_trgm`), Redis                      |
-  |   Colas asíncronas   | BullMQ                                                                   |
-  | Entorno y despliegue | Docker, Vercel (Frontend), Render/Railway (API)                          |
-  |_________________________________________________________________________________________________|
+____________________________________________________________________________________________
+| Capa | Tecnologías |
+| :--- | :--- |
+| **Frontend** | Vue 3 (Composition API), TypeScript, Pinia, Tailwind CSS, Vite |
+| **Backend** | Node.js, Express, TypeScript, Zod, Arquitectura en Capas / Vertical Slices |
+| **Persistencia & Caché** | PostgreSQL (Extensiones: `ltree`, `pg_trgm`), Redis |
+| **Colas Asíncronas** | BullMQ |
+| **Entorno & Despliegue** | Docker, Vercel (Frontend), Render/Railway (API) |
 
 
 
