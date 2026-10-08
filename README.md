@@ -2,9 +2,9 @@
 Entorno de escritorio virtual en el navegador enfocado en resolver problemas reales de escalabilidad: Virtualización del DOM en cliente, consultas jerárquicas en base de datos e indexación sobre
 un volumen de + 100.000 archivos sintéticos y procesamiento en segundo plano desacoplado
 
-**Demo en producción: [ ... ]
+**Demo en producción:** [ ... ]
 
-**🎯Retos técnicos resueltos:
+##🎯Retos técnicos resueltos:
 * **Explorador con más de 100.000 archivos**
   Implementación de **Virtual Scrolling** en Vue 3 (`tanstack/vue-virtual` / `vue-virtual-scroller`). El navegador solo renderiza los elementos visibles en el viewport (Aproximadamente 40 en el DOM)
   evitando así bloqueos de memoria y caídas de frames.
@@ -33,7 +33,13 @@ un volumen de + 100.000 archivos sintéticos y procesamiento en segundo plano de
 | **Colas Asíncronas** | BullMQ |
 | **Entorno & Despliegue** | Docker, Vercel (Frontend), Render/Railway (API) |
 
-
+##🚀Despliegue Local en 3 pasos
+###1. CLonar e instalar dependencias
+```bash
+git clone [...]
+cd oogleos
+npm install
+```
 
 
 
