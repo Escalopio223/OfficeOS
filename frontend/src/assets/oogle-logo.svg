@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="22" height="22" class="oogle-logo-icon">
+  <!-- Arco rojo (superior) -->
+  <path fill="#EA4335" stroke="#EA4335" stroke-width="0.3" stroke-linejoin="round"
+        d="M 9.858 9.858 A 20 20 0 0 1 38.142 9.858 L 31.566 16.434 A 10.7 10.7 0 0 0 16.434 16.434 Z"/>
+  <!-- Arco azul (derecha) -->
+  <path fill="#4285F4" stroke="#4285F4" stroke-width="0.3" stroke-linejoin="round"
+        d="M 38.142 9.858 A 20 20 0 0 1 38.142 38.142 L 31.566 31.566 A 10.7 10.7 0 0 0 31.566 16.434 Z"/>
+  <!-- Arco verde (inferior) -->
+  <path fill="#34A853" stroke="#34A853" stroke-width="0.3" stroke-linejoin="round"
+        d="M 38.142 38.142 A 20 20 0 0 1 9.858 38.142 L 16.434 31.566 A 10.7 10.7 0 0 0 31.566 31.566 Z"/>
+  <!-- Arco amarillo (izquierda) -->
+  <path fill="#FBBC05" stroke="#FBBC05" stroke-width="0.3" stroke-linejoin="round"
+        d="M 9.858 38.142 A 20 20 0 0 1 9.858 9.858 L 16.434 16.434 A 10.7 10.7 0 0 0 16.434 31.566 Z"/>
+</svg>

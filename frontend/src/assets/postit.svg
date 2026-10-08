@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
+  <defs>
+    <!-- Sombra realista para efecto 3D del post-it -->
+    <filter id="postit-shadow" x="-15%" y="-10%" width="130%" height="135%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="4" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.18" />
+      <feDropShadow dx="1" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="0.12" />
+    </filter>
+
+    <filter id="tape-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000000" flood-opacity="0.12" />
+    </filter>
+
+    <!-- Gradiente amarillo característico de Post-it -->
+    <linearGradient id="yellow-note" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fffec4" />
+      <stop offset="40%" stop-color="#fff875" />
+      <stop offset="100%" stop-color="#fae742" />
+    </linearGradient>
+
+    <!-- Tira adhesiva superior -->
+    <linearGradient id="adhesive-strip" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Cinta adhesiva translúcida -->
+    <linearGradient id="tape-mat" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.65" />
+      <stop offset="50%" stop-color="#fefefe" stop-opacity="0.45" />
+      <stop offset="100%" stop-color="#f2f2f2" stop-opacity="0.55" />
+    </linearGradient>
+  </defs>
+
+  <style>
+    .label {
+      font-family: 'Segoe Print', 'Caveat', 'Comic Sans MS', cursive, sans-serif;
+      font-size: 26px;
+      font-weight: 700;
+      fill: #2d2616;
+    }
+    .value {
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 31px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .val-user {
+      fill: #1f2937;
+    }
+    .val-pass {
+      fill: #b91c1c;
+    }
+    .badge {
+      font-family: 'Segoe UI', -apple-system, sans-serif;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      fill: #856a00;
+    }
+  </style>
+
+  <!-- Grupo con ligera rotación natural de papel pegado a mano (-1.6 grados) -->
+  <g transform="rotate(-1.6 250 250)">
+    <!-- Cuerpo del Post-it con esquina inferior ligeramente curvada -->
+    <path d="M 75 75 
+             L 425 75 
+             Q 430 75, 430 80 
+             L 430 410 
+             C 415 425, 380 425, 355 423 
+             L 85 423 
+             Q 75 423, 75 415 
+             Z" 
+          fill="url(#yellow-note)" 
+          filter="url(#postit-shadow)" />
+
+    <!-- Banda adhesiva en la parte superior del papel -->
+    <rect x="75" y="75" width="355" height="48" fill="url(#adhesive-strip)" />
+
+    <!-- Sombra suave simulando curvatura en el borde inferior -->
+    <path d="M 85 421 C 200 424, 340 423, 428 410 L 430 412 C 380 427, 210 426, 85 423 Z" 
+          fill="#000000" opacity="0.08" />
+
+    <!-- Cinta adhesiva decorativa en la parte superior -->
+    <g filter="url(#tape-shadow)">
+      <polygon points="208,56 292,57 289,84 205,83" fill="url(#tape-mat)" />
+      <!-- Borde de corte de la cinta -->
+      <line x1="208" y1="56" x2="205" y2="83" stroke="#ffffff" stroke-width="1" stroke-dasharray="2,2" stroke-opacity="0.8" />
+      <line x1="292" y1="57" x2="289" y2="84" stroke="#ffffff" stroke-width="1" stroke-dasharray="2,2" stroke-opacity="0.8" />
+    </g>
+
+    <!-- Encabezado / Etiqueta discreta -->
+    <g transform="translate(100, 132)">
+      <text x="0" y="0" class="badge">📌 ACCESO / CREDENCIALES</text>
+      <line x1="0" y1="9" x2="305" y2="9" stroke="#dfc221" stroke-width="1.5" stroke-dasharray="3,3" />
+    </g>
+
+    <!-- Campo: usuario: administrador -->
+    <g transform="translate(100, 176)">
+      <text x="0" y="0" class="label">usuario:</text>
+      <g transform="translate(0, 12)">
+        <rect x="-4" y="0" width="298" height="42" rx="6" fill="#ffffff" fill-opacity="0.52" stroke="#dec133" stroke-width="1.2" />
+        <text x="12" y="31" class="value val-user">administrador</text>
+      </g>
+    </g>
+
+    <!-- Línea divisoria tipo renglón de libreta -->
+    <line x1="100" y1="256" x2="405" y2="256" stroke="#ebd24d" stroke-width="1.2" stroke-dasharray="4,4" />
+
+    <!-- Campo: contraseña: 12345678A* -->
+    <g transform="translate(100, 292)">
+      <text x="0" y="0" class="label">contraseña:</text>
+      <g transform="translate(0, 12)">
+        <rect x="-4" y="0" width="254" height="42" rx="6" fill="#ffffff" fill-opacity="0.52" stroke="#f87171" stroke-width="1.2" stroke-opacity="0.75" />
+        <text x="12" y="31" class="value val-pass">12345678A*</text>
+      </g>
+    </g>
+
+    <!-- Pequeño detalle de doblez en la esquina inferior derecha -->
+    <path d="M 408 424 Q 425 418 430 409 Q 424 416 408 424 Z" fill="#d4b810" opacity="0.4" />
+  </g>
+</svg>
