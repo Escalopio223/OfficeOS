@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useAuthStore } from '@/stores/authStore';
+import StickyNote from '@/components/desktop/StickyNote.vue';
 
 const authStore = useAuthStore();
 
@@ -9,6 +10,11 @@ const passInput = ref('');
 
 function handleSubmit() {
   authStore.login(userInput.value, passInput.value);
+}
+
+function handleFillCredentials() {
+  userInput.value = authStore.defaultCredentials.user;
+  passInput.value = authStore.defaultCredentials.pass;
 }
 </script>
 
@@ -55,11 +61,25 @@ function handleSubmit() {
           Iniciar Sesión
         </button>
       </form>
+
+      <!-- Post-it pegado a la esquina inferior derecha de la tarjeta -->
+      <div 
+        class="sticky-anchor" 
+        title="Clic para autocompletar credenciales"
+        @click="handleFillCredentials"
+      >
+        <StickyNote
+          :user="authStore.defaultCredentials.user"
+          :pass="authStore.defaultCredentials.pass"
+        />
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Product+Sans&display=swap');
+
 .login-overlay {
   position: absolute;
   inset: 0;
@@ -69,9 +89,12 @@ function handleSubmit() {
   background: rgba(17, 17, 27, 0.75);
   backdrop-filter: blur(8px);
   z-index: 5000;
+  overflow: visible;
 }
 
 .login-card {
+  position: relative;
+  overflow: visible !important; /* Vital para que el post-it no quede recortado */
   width: 360px;
   background: #181825;
   border: 1px solid #313244;
@@ -81,6 +104,23 @@ function handleSubmit() {
   flex-direction: column;
   align-items: center;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Posición del Post-it saliendo por la esquina inferior derecha */
+.sticky-anchor {
+  position: absolute;
+  bottom: -170px;
+  right: -55px;
+  z-index: 5001;
+  cursor: pointer;
+  transform: rotate(5deg);
+  transition: transform 0.15s ease, filter 0.15s ease;
+  user-select: none;
+}
+
+.sticky-anchor:hover {
+  transform: rotate(2deg) scale(1.12);
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.4));
 }
 
 .avatar-circle {
@@ -97,16 +137,28 @@ function handleSubmit() {
 }
 
 .system-title {
-  color: #cdd6f4;
-  font-size: 18px;
+  display: inline-flex;
+  align-items: baseline;
+  font-family: 'Product Sans', 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 28px;
   font-weight: 700;
-  margin-bottom: 4px;
+  letter-spacing: -0.5px;
+  line-height: 1;
+  user-select: none;
+  margin: 0 0 20px 0;
+  padding: 0;
 }
 
-.system-subtitle {
-  color: #6c7086;
-  font-size: 12px;
-  margin-bottom: 24px;
+.font-size-xl { font-size: 2rem; }
+.system-title .letter-blue   { color: #4285F4; }
+.system-title .letter-red    { color: #EA4335; }
+.system-title .letter-yellow { color: #FBBC05; }
+.system-title .letter-green  { color: #34A853; }
+.system-title .os-tag {
+  color: #9aa0a6;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  margin-left: 2px;
 }
 
 .login-form {
@@ -168,33 +220,4 @@ function handleSubmit() {
 .btn-submit:hover {
   opacity: 0.9;
 }
-
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Product+Sans&display=swap');
-
-.system-title {
-  display: inline-flex;
-  align-items: baseline;
-  font-family: 'Product Sans', 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-  line-height: 1;
-  user-select: none;
-  margin: 0;
-  padding: 0;
-}
-
-.font-size-xl { font-size: 2rem; }
-.system-title .letter-blue   { color: #4285F4; }
-.system-title .letter-red    { color: #EA4335; }
-.system-title .letter-yellow { color: #FBBC05; }
-.system-title .letter-green  { color: #34A853; }
-
-.system-title .os-tag {
-  color: #9aa0a6;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  margin-left: 2px;
-}
-
 </style>
