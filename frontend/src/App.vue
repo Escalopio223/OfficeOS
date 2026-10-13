@@ -27,6 +27,10 @@ const authStore = useAuthStore();
   padding: 0;
 }
 
+html {
+  font-size: 16px; 
+}
+
 html,
 body,
 #app {
@@ -34,6 +38,9 @@ body,
   height: 100%;
   overflow: hidden;
   user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 </style>
 

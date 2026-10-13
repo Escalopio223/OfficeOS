@@ -2,11 +2,13 @@
 import { ref, onMounted } from 'vue';
 import { useFileSystemStore } from '@/stores/filesystem';
 import { useWindowStore } from '@/stores/windowStore';
+import { useDesktopStore } from '@/stores/desktopStore';
 import { useWindowBounds } from '@/composables/useWindowBounds';
 import oxplorerSvg from '@/assets/oxplorer.svg';
 
 const fs = useFileSystemStore();
 const winStore = useWindowStore();
+const desktopStore = useDesktopStore();
 const searchQuery = ref('');
 
 const winState = winStore.windows['oxplorer'];
@@ -26,11 +28,90 @@ function getFileExtension(filename: string): string {
 }
 
 function handleHeaderDoubleClick(e: MouseEvent) {
-  // Solo reaccionar si el doble clic se hace sobre la barra, no sobre los botones de control
   const target = e.target as HTMLElement;
   if (!target.closest('.win-controls') && !target.closest('.perf-stats')) {
     winStore.toggleMaximize('oxplorer');
   }
+}
+
+// Drag nativo para arrastrar archivos fuera de Oxplorer hacia el escritorio/carpetas
+function onFileDragStart(e: DragEvent, item: any) {
+  if (e.dataTransfer) {
+    e.dataTransfer.setData('application/json', JSON.stringify(item));
+    e.dataTransfer.effectAllowed = 'copy';
+  }
+}
+
+// Abrir carpetas en Oxplorer o abrir archivos de texto/datos en Onotes
+function handleItemDoubleClick(item: any) {
+  if (item.is_directory) {
+    fs.openDirectory(item);
+    return;
+  }
+
+  const ext = getFileExtension(item.name);
+
+  // 1. Archivos de hoja de cálculo (.CSV) -> Osheets
+  if (ext === 'CSV') {
+    const csvContent = [
+      'id_transaccion,servicio,region,latencia_ms,estado,fecha',
+      `"TX-${item.id.slice(0, 6)}","PostgreSQL Primary","eu-west-1","1.4","OK","2026-10-01"`,
+      `"TX-${item.id.slice(0, 5)}A","Redis Cache Layer","eu-west-1","0.2","HIT","2026-10-02"`,
+      `"TX-${item.id.slice(0, 5)}B","Fastify Worker","us-east-1","3.8","OK","2026-10-03"`,
+      `"TX-${item.id.slice(0, 5)}C","Trigram Indexer","eu-central-1","2.1","OK","2026-10-04"`,
+      `"TX-${item.id.slice(0, 5)}D","Auth Guard","eu-west-1","0.9","VERIFIED","2026-10-05"`,
+    ].join('\n');
+
+    winStore.openWindow('osheets', {
+      name: item.name,
+      content: csvContent,
+    });
+    return;
+  }
+
+  // 2. Archivos de imagen (.JPG, .PNG) -> Ophotos (Usando semilla determinista sin ocupar espacio en BD)
+  if (ext === 'JPG' || ext === 'PNG') {
+    const seed = encodeURIComponent(item.name);
+    winStore.openWindow('ophotos', {
+      name: item.name,
+      url: `https://picsum.photos/seed/${seed}/900/600`,
+      meta: `${formatBytes(item.size_bytes)} • 900x600px • ${ext}`,
+    });
+    return;
+  }
+
+  // 3. Archivos de texto y código (.TXT, .MD, .JSON, .LOG, .SQL) -> Onotes
+  let textContent = '';
+  if (ext === 'JSON') {
+    textContent = JSON.stringify(
+      {
+        node_id: item.id,
+        name: item.name,
+        path: item.path,
+        size_bytes: item.size_bytes,
+        mime_type: item.mime_type,
+        storage_engine: 'PostgreSQL LTree + Redis',
+      },
+      null,
+      2
+    );
+  } else if (ext === 'SQL') {
+    textContent = `-- Migración de nodo: ${item.name}\nCREATE INDEX CONCURRENTLY idx_fs_path_gist ON fs_nodes USING GIST (path);\nSELECT * FROM fs_nodes WHERE path <@ '${item.path}' LIMIT 50;`;
+  } else if (ext === 'LOG') {
+    textContent = `[2026-10-13 09:14:22] INFO  [Fastify] GET /api/fs/children?path=${item.path} 200 OK (1.2ms)\n[2026-10-13 09:14:23] DEBUG [Redis] Cache HIT key="dir:${item.path}"\n[2026-10-13 09:14:25] INFO  [Auth] Session validated for user=administrador`;
+  } else if (ext === 'MD') {
+    textContent = `# ${item.name}\n\nRuta en el árbol: \`${item.path}\`\n\n## Detalles técnicos\n- **Tamaño:** ${formatBytes(item.size_bytes)}\n- **MIME:** \`${item.mime_type}\`\n- **Indexación:** Búsqueda difusa por trigramas activa.`;
+  } else {
+    textContent = `Documento: ${item.name}\nRuta: ${item.path}\nTamaño: ${formatBytes(item.size_bytes)}\n\nContenido de texto cargado desde el sistema de archivos OogleOS.`;
+  }
+
+  winStore.openWindow('onotes', {
+    noteId: null,
+    virtualFile: {
+      name: item.name,
+      content: textContent,
+    },
+  });
 }
 
 onMounted(() => {
@@ -153,7 +234,9 @@ onMounted(() => {
         :key="item.id"
         class="file-card"
         :class="{ 'is-dir': item.is_directory }"
-        @dblclick="fs.openDirectory(item)"
+        draggable="true"
+        @dragstart="onFileDragStart($event, item)"
+        @dblclick="handleItemDoubleClick(item)"
       >
         <div class="icon-container">
           <svg v-if="item.is_directory" class="folder-svg" viewBox="0 0 24 24">

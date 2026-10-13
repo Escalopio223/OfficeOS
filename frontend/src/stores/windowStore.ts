@@ -8,6 +8,7 @@ export interface WindowInstance {
     isMinimized: boolean;
     isMaximized: boolean;
     zIndex: number;
+    data?: any;
 }
 
 export const useWindowStore = defineStore('windowManager', () => {
@@ -20,14 +21,42 @@ export const useWindowStore = defineStore('windowManager', () => {
             isMaximized: false,
             zIndex: 10,
         },
+        onotes: {
+            id: 'onotes',
+            title: 'Onotes',
+            isOpen: false,
+            isMinimized: false,
+            isMaximized: false,
+            zIndex: 11,
+            data: null,
+        },
+        osheets: {
+            id: 'osheets',
+            title: 'Osheets (CSV)',
+            isOpen: false,
+            isMinimized: false,
+            isMaximized: false,
+            zIndex: 12,
+            data: null,
+        },
+        ophotos: {
+            id: 'ophotos',
+            title: 'Ophotos',
+            isOpen: false,
+            isMinimized: false,
+            isMaximized: false,
+            zIndex: 13,
+            data: null,
+        },
     });
 
-    const topZIndex = ref(10);
+    const topZIndex = ref(20);
 
-    function openWindow(id: string) {
+    function openWindow(id: string, data?: any) {
         if (!windows.value[id]) return;
         windows.value[id].isOpen = true;
         windows.value[id].isMinimized = false;
+        if (data !== undefined) windows.value[id].data = data;
         focusWindow(id);
     }
 
