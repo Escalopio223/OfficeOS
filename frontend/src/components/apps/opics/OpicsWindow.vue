@@ -2,9 +2,10 @@
 import { ref, computed, watch } from 'vue';
 import { useWindowStore } from '@/stores/windowStore';
 import { useWindowBounds } from '@/composables/useWindowBounds';
+import opicsSvg from '@/assets/opics.svg';
 
 const winStore = useWindowStore();
-const winState = winStore.windows['ophotos'];
+const winState = winStore.windows['opics'];
 const { x, y, width, height, startDrag, startResize } = useWindowBounds(200, 60, 720, 520);
 
 const zoom = ref(1);
@@ -19,7 +20,11 @@ watch(
   () => {
     zoom.value = 1;
     rotation.value = 0;
-  }
+    if (winState) {
+      winStore.windows['opics'].title = fileName.value;
+    }
+  },
+  { immediate: true }
 );
 
 function zoomIn() {
@@ -42,7 +47,7 @@ function resetView() {
 function handleDoubleClickHeader(e: MouseEvent) {
   const target = e.target as HTMLElement;
   if (!target.closest('.win-controls')) {
-    winStore.toggleMaximize('ophotos');
+    winStore.toggleMaximize('opics');
   }
 }
 </script>
@@ -50,7 +55,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
 <template>
   <div
     v-show="!winState.isMinimized"
-    class="ophotos-window"
+    class="opics-window"
     :class="{ 'is-maximized': winState.isMaximized }"
     :style="
       winState.isMaximized
@@ -63,7 +68,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
             zIndex: winState.zIndex
           }
     "
-    @mousedown="winStore.focusWindow('ophotos')"
+    @mousedown="winStore.focusWindow('opics')"
   >
     <!-- Tiradores Resize -->
     <template v-if="!winState.isMaximized">
@@ -80,25 +85,21 @@ function handleDoubleClickHeader(e: MouseEvent) {
     <!-- Header -->
     <header class="window-header" @mousedown="startDrag($event, winState.isMaximized)" @dblclick="handleDoubleClickHeader">
       <div class="window-title">
-        <svg class="photos-icon" viewBox="0 0 24 24" fill="none" stroke="#EA4335" stroke-width="2">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-          <circle cx="8.5" cy="8.5" r="1.5"></circle>
-          <polyline points="21 15 16 10 5 21"></polyline>
-        </svg>
-        <span>{{ fileName }} — Ophotos</span>
+        <img :src="opicsSvg" alt="Opics" class="opics-icon" />
+        <span>{{ fileName }} — Opics</span>
       </div>
 
       <div class="win-controls" @mousedown.stop @dblclick.stop>
-        <button class="win-btn" @click="winStore.toggleMinimize('ophotos')">—</button>
-        <button class="win-btn" @click="winStore.toggleMaximize('ophotos')">
+        <button class="win-btn" title="Minimizar" @click="winStore.toggleMinimize('opics')">—</button>
+        <button class="win-btn" title="Maximizar" @click="winStore.toggleMaximize('opics')">
           {{ winState.isMaximized ? '❐' : '□' }}
         </button>
-        <button class="win-btn close" @click="winStore.closeWindow('ophotos')">✕</button>
+        <button class="win-btn close" title="Cerrar" @click="winStore.closeWindow('opics')">✕</button>
       </div>
     </header>
 
     <!-- Controles de Imagen -->
-    <div class="photos-toolbar">
+    <div class="opics-toolbar">
       <div class="tool-group">
         <button class="tool-btn" @click="zoomOut">🔍 -</button>
         <span class="zoom-label">{{ Math.round(zoom * 100) }}%</span>
@@ -124,7 +125,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
 </template>
 
 <style scoped>
-.ophotos-window {
+.opics-window {
   position: absolute;
   background: rgba(15, 23, 42, 0.92);
   backdrop-filter: blur(20px);
@@ -137,7 +138,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
   user-select: none;
 }
 
-.ophotos-window.is-maximized {
+.opics-window.is-maximized {
   top: 0 !important;
   left: 0 !important;
   width: 100vw !important;
@@ -174,7 +175,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
   font-weight: 600;
   color: #f8fafc;
 }
-.photos-icon { width: 16px; height: 16px; }
+.opics-icon { width: 18px; height: 18px; object-fit: contain; }
 
 .win-controls { display: flex; gap: 4px; }
 .win-btn {
@@ -189,7 +190,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
 .win-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
 .win-btn.close:hover { background: #ef4444; color: #fff; }
 
-.photos-toolbar {
+.opics-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;

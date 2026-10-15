@@ -2,14 +2,16 @@
 import { ref, nextTick, useTemplateRef } from 'vue';
 import { useWindowStore } from '@/stores/windowStore';
 import { useDesktopStore, type DesktopItem } from '@/stores/desktopStore';
+import { useFileSystemStore, notifyFilesystemChanged } from '@/stores/filesystem';
 import OxplorerWindow from '@/components/apps/oxplorer/OxplorerWindow.vue';
 import OnotesWindow from '@/components/apps/onotes/OnotesWindow.vue';
 import oxplorerSvg from '@/assets/oxplorer.svg';
 import OsheetsWindow from '@/components/apps/osheets/OsheetsWindow.vue';
-import OphotosWindow from '@/components/apps/ophotos/OphotosWindow.vue';
+import OpicsWindow from '@/components/apps/opics/OpicsWindow.vue';
 
 const winStore = useWindowStore();
 const desktopStore = useDesktopStore();
+const fs = useFileSystemStore();
 const workspaceRef = useTemplateRef<HTMLElement>('workspaceRef');
 
 const ICON_WIDTH = 84;
@@ -21,7 +23,15 @@ const oxplorerPos = ref({ x: 24, y: 24 });
 
 // Control de arrastre y estado de colisión en tiempo real
 const activeDragId = ref<string | null>(null);
+const isActuallyDragging = ref(false);
 const isCurrentlyColliding = ref(false);
+
+interface DropFolderTarget {
+  id: string;
+  name: string;
+  type: 'desktop' | 'oxplorer-node' | 'oxplorer-content';
+}
+const hoveredDropFolder = ref<DropFolderTarget | null>(null);
 let startPointerX = 0;
 let startPointerY = 0;
 let initialTargetX = 0;
@@ -44,7 +54,7 @@ function getAllObstacles(excludeId: string | null) {
     obstacles.push({ id: 'oxplorer', x: oxplorerPos.value.x, y: oxplorerPos.value.y });
   }
 
-  for (const item of desktopStore.getFolderChildren(null)) {
+  for (const item of desktopStore.items) {
     if (item.id !== excludeId) {
       obstacles.push({ id: item.id, x: item.x ?? 24, y: item.y ?? 120 });
     }
@@ -66,6 +76,27 @@ function isColliding(x: number, y: number, excludeId: string | null): boolean {
       y + h > obs.y
     );
   });
+}
+
+// Comprueba si unas coordenadas caen sobre una carpeta del escritorio
+function findFolderUnder(x: number, y: number, excludeId: string): DesktopItem | null {
+  const w = ICON_WIDTH;
+  const h = ICON_HEIGHT;
+  for (const item of desktopStore.items) {
+    if (item.id !== excludeId && item.is_directory) {
+      const ix = item.x ?? 24;
+      const iy = item.y ?? 120;
+      if (
+        x < ix + w &&
+        x + w > ix &&
+        y < iy + h &&
+        y + h > iy
+      ) {
+        return item;
+      }
+    }
+  }
+  return null;
 }
 
 // Busca la posición libre más cercana en caso de solapamiento
@@ -111,6 +142,7 @@ function startItemDrag(e: MouseEvent, id: string, currentX: number, currentY: nu
   if (editingItemId.value === id) return;
 
   activeDragId.value = id;
+  isActuallyDragging.value = false;
   hasMoved = false;
   isCurrentlyColliding.value = false;
   startPointerX = e.clientX;
@@ -128,31 +160,96 @@ function onGlobalMouseMove(e: MouseEvent) {
   const deltaX = e.clientX - startPointerX;
   const deltaY = e.clientY - startPointerY;
 
-  if (Math.hypot(deltaX, deltaY) > 3) {
+  if (Math.hypot(deltaX, deltaY) > 6) {
     hasMoved = true;
+    isActuallyDragging.value = true;
   }
+
+  // Si no ha superado el umbral de movimiento, no desplazar el icono ni bloquear eventos de clic
+  if (!isActuallyDragging.value) return;
 
   const { maxW, maxH } = getDesktopBounds();
   const nextX = Math.min(Math.max(12, initialTargetX + deltaX), maxW);
   const nextY = Math.min(Math.max(12, initialTargetY + deltaY), maxH);
 
-  // Comprobar si en esta coordenada está pisando otro icono
-  isCurrentlyColliding.value = isColliding(nextX, nextY, activeDragId.value);
-
   if (activeDragId.value === 'oxplorer') {
     oxplorerPos.value.x = nextX;
     oxplorerPos.value.y = nextY;
-  } else {
-    const targetItem = desktopStore.items.find((i) => i.id === activeDragId.value);
-    if (targetItem) {
-      targetItem.x = nextX;
-      targetItem.y = nextY;
+    isCurrentlyColliding.value = isColliding(nextX, nextY, 'oxplorer');
+    return;
+  }
+
+  const targetItem = desktopStore.items.find((i) => i.id === activeDragId.value);
+  if (targetItem) {
+    targetItem.x = nextX;
+    targetItem.y = nextY;
+  }
+
+  // Limpiar clases de hover en Oxplorer
+  document.querySelectorAll('.is-drop-hover').forEach((el) => el.classList.remove('is-drop-hover'));
+
+  // 1. Detección debajo del cursor mediante document.elementsFromPoint
+  const elements = document.elementsFromPoint(e.clientX, e.clientY);
+
+  // A) ¿Está sobre una tarjeta de carpeta en Oxplorer?
+  const oxplorerDirCard = elements.find((el) => {
+    const card = el.closest('.file-card');
+    return card && card.getAttribute('data-is-dir') === 'true';
+  })?.closest('.file-card') as HTMLElement | undefined;
+
+  // B) ¿Está sobre el área de contenido de Oxplorer?
+  const oxplorerContent = elements.find((el) => el.closest('.glass-content'))?.closest('.glass-content') as HTMLElement | undefined;
+
+  // C) ¿Está sobre una carpeta del propio escritorio?
+  const desktopFolderTarget = findFolderUnder(nextX, nextY, activeDragId.value);
+
+  if (oxplorerDirCard) {
+    const folderId = oxplorerDirCard.getAttribute('data-node-id');
+    const folderName = oxplorerDirCard.getAttribute('data-node-name') || 'Carpeta';
+    if (folderId && folderId !== activeDragId.value) {
+      hoveredDropFolder.value = {
+        id: folderId,
+        name: folderName,
+        type: 'oxplorer-node',
+      };
+      oxplorerDirCard.classList.add('is-drop-hover');
+      isCurrentlyColliding.value = false;
+      return;
     }
   }
+
+  if (oxplorerContent && fs.currentFolder) {
+    if (fs.currentFolder.path !== 'root.desktop' && fs.currentFolder.id !== activeDragId.value) {
+      hoveredDropFolder.value = {
+        id: fs.currentFolder.id,
+        name: fs.currentFolder.name || 'Oxplorer',
+        type: 'oxplorer-content',
+      };
+      oxplorerContent.classList.add('is-drop-hover');
+      isCurrentlyColliding.value = false;
+      return;
+    }
+  }
+
+  if (desktopFolderTarget) {
+    hoveredDropFolder.value = {
+      id: desktopFolderTarget.id,
+      name: desktopFolderTarget.name,
+      type: 'desktop',
+    };
+    isCurrentlyColliding.value = false;
+    return;
+  }
+
+  // Sin carpeta detectada: verificar colisiones con otros archivos
+  hoveredDropFolder.value = null;
+  isCurrentlyColliding.value = isColliding(nextX, nextY, activeDragId.value);
 }
 
-function onGlobalMouseUp() {
-  if (activeDragId.value) {
+async function onGlobalMouseUp() {
+  document.querySelectorAll('.is-drop-hover').forEach((el) => el.classList.remove('is-drop-hover'));
+
+  if (activeDragId.value && isActuallyDragging.value) {
     const id = activeDragId.value;
 
     if (id === 'oxplorer') {
@@ -161,22 +258,34 @@ function onGlobalMouseUp() {
       oxplorerPos.value.y = freePos.y;
     } else {
       const targetItem = desktopStore.items.find((i) => i.id === id);
-      if (targetItem && targetItem.x !== undefined && targetItem.y !== undefined) {
-        const freePos = findFreePosition(targetItem.x, targetItem.y, id);
-        desktopStore.updatePosition(id, freePos.x, freePos.y);
+      if (targetItem) {
+        if (hoveredDropFolder.value) {
+          const dropTarget = hoveredDropFolder.value;
+          if (dropTarget.type === 'oxplorer-node' || dropTarget.type === 'oxplorer-content') {
+            await fs.moveNode(id, dropTarget.id);
+          } else {
+            await desktopStore.moveToFolder(id, dropTarget.id);
+          }
+        } else {
+          const freePos = findFreePosition(targetItem.x ?? 24, targetItem.y ?? 120, id);
+          await desktopStore.updatePosition(id, freePos.x, freePos.y);
+        }
       }
     }
   }
 
   activeDragId.value = null;
+  isActuallyDragging.value = false;
+  hasMoved = false;
+  hoveredDropFolder.value = null;
   isCurrentlyColliding.value = false;
   window.removeEventListener('mousemove', onGlobalMouseMove);
   window.removeEventListener('mouseup', onGlobalMouseUp);
 }
 
 function handleOxplorerDoubleClick() {
-  if (hasMoved) return;
-  winStore.openWindow('oxplorer');
+  if (isActuallyDragging.value) return;
+  winStore.openWindow('oxplorer', { targetPath: 'root' });
 }
 
 // --- Menú Contextual del Escritorio ---
@@ -193,14 +302,17 @@ function onDesktopRightClick(e: MouseEvent) {
 
 function handleCreateFolder() {
   const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
-  desktopStore.createFolder('Nueva Carpeta', null, freePos.x, freePos.y);
+  desktopStore.createFolder('Nueva Carpeta', freePos.x, freePos.y);
   closeAllMenus();
 }
 
 function handleCreateNote() {
   const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
-  const note = desktopStore.createNote('Nueva Nota.txt', null, '', freePos.x, freePos.y);
-  winStore.openWindow('onotes', { noteId: note.id });
+  desktopStore.createNote('Nueva Nota.txt', '', freePos.x, freePos.y).then((note) => {
+    if (note) {
+      winStore.openWindow('onotes', { noteId: note.id });
+    }
+  });
   closeAllMenus();
 }
 
@@ -227,10 +339,35 @@ function closeAllMenus() {
 }
 
 function handleItemDoubleClick(item: DesktopItem) {
-  if (hasMoved || editingItemId.value === item.id) return;
-  if (item.type === 'note' || item.type === 'oxplorer-node') {
-    winStore.openWindow('onotes', { noteId: item.id });
+  if (isActuallyDragging.value || editingItemId.value === item.id) return;
+
+  // Si es carpeta, abrir en Oxplorer directamente en su ruta
+  if (item.is_directory) {
+    winStore.openWindow('oxplorer', { targetPath: item.path, targetFolder: item });
+    return;
   }
+
+  const ext = item.name.split('.').pop()?.toUpperCase() || '';
+
+  if (ext === 'CSV') {
+    winStore.openWindow('osheets', {
+      name: item.name,
+      content: item.content || 'id,descripcion,valor\n1,Dato A,100\n2,Dato B,200',
+    });
+    return;
+  }
+
+  if (ext === 'JPG' || ext === 'PNG') {
+    winStore.openWindow('opics', {
+      name: item.name,
+      url: `https://picsum.photos/seed/${encodeURIComponent(item.name)}/900/600`,
+      meta: `${item.name} • ${ext}`,
+    });
+    return;
+  }
+
+  // Archivo de texto/nota general
+  winStore.openWindow('onotes', { noteId: item.id });
 }
 
 function handleOpenSelectedItem() {
@@ -279,13 +416,48 @@ function handleDeleteSelectedItem() {
   closeAllMenus();
 }
 
-function onDropOnFolder(e: DragEvent, folderId: string | null) {
+// Drop en el fondo del escritorio (mueve el archivo/carpeta a root.desktop con coordenadas libres)
+async function onDropOnDesktop(e: DragEvent) {
   e.preventDefault();
   const rawData = e.dataTransfer?.getData('application/json');
   if (rawData) {
-    const node = JSON.parse(rawData);
-    const freePos = findFreePosition(e.clientX - ICON_WIDTH / 2, e.clientY - ICON_HEIGHT / 2, null);
-    desktopStore.importFromOxplorer(node, folderId, freePos.x, freePos.y);
+    try {
+      const node = JSON.parse(rawData);
+      const freePos = findFreePosition(e.clientX - ICON_WIDTH / 2, e.clientY - ICON_HEIGHT / 2, null);
+      await fetch(`/api/nodes/${node.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetFolderPath: 'root.desktop',
+          pos_x: freePos.x,
+          pos_y: freePos.y,
+        }),
+      });
+      notifyFilesystemChanged();
+    } catch {}
+  }
+}
+
+// Drop sobre un icono que sea carpeta en el escritorio
+async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
+  e.preventDefault();
+  e.stopPropagation();
+  const rawData = e.dataTransfer?.getData('application/json');
+  if (rawData) {
+    try {
+      const node = JSON.parse(rawData);
+      if (node.id === targetFolderId) return;
+      await fetch(`/api/nodes/${node.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetFolderId,
+          pos_x: null,
+          pos_y: null,
+        }),
+      });
+      notifyFilesystemChanged();
+    } catch {}
   }
 }
 </script>
@@ -297,14 +469,14 @@ function onDropOnFolder(e: DragEvent, folderId: string | null) {
     @contextmenu="onDesktopRightClick"
     @click="closeAllMenus"
     @dragover.prevent
-    @drop="onDropOnFolder($event, null)"
+    @drop="onDropOnDesktop($event)"
   >
     <!-- Acceso Oxplorer Arrastrable -->
     <div
       class="shortcut-item"
       :class="{
-        'is-dragging': activeDragId === 'oxplorer',
-        'is-overlapping': activeDragId === 'oxplorer' && isCurrentlyColliding
+        'is-dragging': isActuallyDragging && activeDragId === 'oxplorer',
+        'is-overlapping': isActuallyDragging && activeDragId === 'oxplorer' && isCurrentlyColliding
       }"
       :style="{ left: `${oxplorerPos.x}px`, top: `${oxplorerPos.y}px` }"
       @mousedown="startItemDrag($event, 'oxplorer', oxplorerPos.x, oxplorerPos.y)"
@@ -314,23 +486,42 @@ function onDropOnFolder(e: DragEvent, folderId: string | null) {
       <span class="shortcut-label">Oxplorer</span>
     </div>
 
-    <!-- Items dinámicos del escritorio Arrastrables (Carpetas y Notas) -->
+    <!-- Items dinámicos del escritorio Arrastrables (Carpetas y Notas de root.desktop) -->
     <div
-      v-for="item in desktopStore.getFolderChildren(null)"
+      v-for="item in desktopStore.items"
       :key="item.id"
       class="shortcut-item"
       :class="{
-        'is-dragging': activeDragId === item.id,
-        'is-overlapping': activeDragId === item.id && isCurrentlyColliding
+        'is-dragging': isActuallyDragging && activeDragId === item.id,
+        'is-overlapping': isActuallyDragging && activeDragId === item.id && isCurrentlyColliding && !hoveredDropFolder,
+        'is-drop-target': hoveredDropFolder?.id === item.id && hoveredDropFolder?.type === 'desktop'
       }"
+      :data-id="item.id"
+      :data-is-dir="item.is_directory ? 'true' : 'false'"
       :style="{ left: `${item.x ?? 24}px`, top: `${item.y ?? 120}px` }"
       @mousedown="startItemDrag($event, item.id, item.x ?? 24, item.y ?? 120)"
       @dblclick="handleItemDoubleClick(item)"
       @contextmenu="onItemRightClick($event, item)"
       @dragover.prevent
-      @drop.stop="item.type === 'folder' ? onDropOnFolder($event, item.id) : null"
+      @drop.stop="item.is_directory ? onDropOnFolderIcon($event, item.id) : null"
     >
-      <svg v-if="item.type === 'folder'" class="folder-icon" viewBox="0 0 24 24" fill="#FBBC05">
+      <!-- Indicador en la carpeta receptora -->
+      <div v-if="hoveredDropFolder?.id === item.id && hoveredDropFolder?.type === 'desktop'" class="folder-target-indicator">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+          <polyline points="7 10 12 15 17 10" />
+        </svg>
+      </div>
+
+      <!-- Badge con icono de inserción en el archivo que se está arrastrando -->
+      <div v-if="isActuallyDragging && activeDragId === item.id && hoveredDropFolder" class="folder-insert-badge">
+        <svg class="folder-insert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 3v11m0 0l-4-4m4 4l4-4" />
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+        </svg>
+        <span>Meter en {{ hoveredDropFolder.name }}</span>
+      </div>
+
+      <svg v-if="item.is_directory" class="folder-icon" viewBox="0 0 24 24" fill="#FBBC05">
         <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
       </svg>
       <svg v-else class="file-icon" viewBox="0 0 24 24" fill="none" stroke="#FBBC05" stroke-width="2">
@@ -391,10 +582,10 @@ function onDropOnFolder(e: DragEvent, folderId: string | null) {
     </div>
 
     <!-- Ventanas activas -->
-    <OxplorerWindow v-if="winStore.windows['oxplorer'].isOpen" />
+    <OxplorerWindow v-if="winStore.windows['oxplorer']?.isOpen" />
     <OnotesWindow v-if="winStore.windows['onotes']?.isOpen" />
     <OsheetsWindow v-if="winStore.windows['osheets']?.isOpen" />
-    <OphotosWindow v-if="winStore.windows['ophotos']?.isOpen" />
+    <OpicsWindow v-if="winStore.windows['opics']?.isOpen" />
   </main>
 </template>
 
@@ -432,16 +623,87 @@ function onDropOnFolder(e: DragEvent, folderId: string | null) {
 }
 
 .shortcut-item.is-dragging {
-  opacity: 0.85;
+  opacity: 0.95;
   cursor: grabbing;
-  z-index: 10;
+  z-index: 99999 !important;
+  pointer-events: none;
 }
 
-/* Feedback visual cuando el icono está pisando a otro */
+/* Feedback visual cuando el icono está pisando a otro (colisión inválida) */
 .shortcut-item.is-overlapping {
   background: rgba(239, 68, 68, 0.22);
   border-color: rgba(248, 113, 113, 0.75);
   box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+/* Carpeta receptora activa en el escritorio */
+.shortcut-item.is-drop-target {
+  background: rgba(56, 189, 248, 0.22) !important;
+  border: 2px dashed #38bdf8 !important;
+  transform: scale(1.08);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.45);
+}
+
+.folder-target-indicator {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 22px;
+  background: #0284c7;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: bounceDown 0.6s infinite alternate ease-in-out;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  z-index: 5;
+}
+
+.folder-target-indicator svg {
+  width: 14px;
+  height: 14px;
+  stroke: #ffffff;
+}
+
+@keyframes bounceDown {
+  from { transform: translateX(-50%) translateY(0); }
+  to { transform: translateX(-50%) translateY(4px); }
+}
+
+/* Badge flotante en el icono arrastrado */
+.folder-insert-badge {
+  position: absolute;
+  bottom: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(14, 165, 233, 0.95);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  animation: fadeIn 0.15s ease-out;
+  z-index: 100000;
+}
+
+.folder-insert-icon {
+  width: 13px;
+  height: 13px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 .shortcut-icon {

@@ -11,8 +11,16 @@ export interface WindowInstance {
     data?: any;
 }
 
+export type WindowId = 'oxplorer' | 'onotes' | 'osheets' | 'opics';
+
+export type WindowsMap = {
+    [K in WindowId]: WindowInstance;
+} & {
+    [key: string]: WindowInstance | undefined;
+};
+
 export const useWindowStore = defineStore('windowManager', () => {
-    const windows = ref<Record<string, WindowInstance>>({
+    const windows = ref<WindowsMap>({
         oxplorer: {
             id: 'oxplorer',
             title: 'Oxplorer',
@@ -39,9 +47,9 @@ export const useWindowStore = defineStore('windowManager', () => {
             zIndex: 12,
             data: null,
         },
-        ophotos: {
-            id: 'ophotos',
-            title: 'Ophotos',
+        opics: {
+            id: 'opics',
+            title: 'Opics',
             isOpen: false,
             isMinimized: false,
             isMaximized: false,
@@ -53,16 +61,18 @@ export const useWindowStore = defineStore('windowManager', () => {
     const topZIndex = ref(20);
 
     function openWindow(id: string, data?: any) {
-        if (!windows.value[id]) return;
-        windows.value[id].isOpen = true;
-        windows.value[id].isMinimized = false;
-        if (data !== undefined) windows.value[id].data = data;
+        const win = windows.value[id];
+        if (!win) return;
+        win.isOpen = true;
+        win.isMinimized = false;
+        if (data !== undefined) win.data = data;
         focusWindow(id);
     }
 
     function closeWindow(id: string) {
-        if (!windows.value[id]) return;
-        windows.value[id].isOpen = false;
+        const win = windows.value[id];
+        if (!win) return;
+        win.isOpen = false;
     }
 
     function toggleMinimize(id: string) {

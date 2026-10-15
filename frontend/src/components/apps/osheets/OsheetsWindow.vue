@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useWindowStore } from '@/stores/windowStore';
 import { useWindowBounds } from '@/composables/useWindowBounds';
+import osheetsSvg from '@/assets/osheets.svg';
 
 const winStore = useWindowStore();
 const winState = winStore.windows['osheets'];
@@ -11,6 +12,16 @@ const filterQuery = ref('');
 
 const fileName = computed(() => winState.data?.name || 'datos.csv');
 const rawCsv = computed(() => winState.data?.content || '');
+
+watch(
+  () => winState.data,
+  () => {
+    if (winState) {
+      winStore.windows['osheets'].title = fileName.value;
+    }
+  },
+  { immediate: true }
+);
 
 const parsedTable = computed(() => {
   const lines = rawCsv.value.trim().split('\n').filter(Boolean);
@@ -73,13 +84,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
     <!-- Cabecera -->
     <header class="window-header" @mousedown="startDrag($event, winState.isMaximized)" @dblclick="handleDoubleClickHeader">
       <div class="window-title">
-        <svg class="sheets-icon" viewBox="0 0 24 24" fill="none" stroke="#34A853" stroke-width="2">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-          <line x1="3" y1="9" x2="21" y2="9"></line>
-          <line x1="3" y1="15" x2="21" y2="15"></line>
-          <line x1="9" y1="3" x2="9" y2="21"></line>
-          <line x1="15" y1="3" x2="15" y2="21"></line>
-        </svg>
+        <img :src="osheetsSvg" alt="Osheets" class="sheets-icon" />
         <span>{{ fileName }} — Osheets</span>
       </div>
 
@@ -115,7 +120,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
         </thead>
         <tbody>
           <tr v-for="(row, rIdx) in filteredRows" :key="rIdx">
-            <td class="row-index">{{ rIdx + 1 }}</td>
+            <td class="row-index">{{ Number(rIdx) + 1 }}</td>
             <td v-for="(cell, cIdx) in row" :key="cIdx">{{ cell }}</td>
           </tr>
         </tbody>
@@ -175,7 +180,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
   font-weight: 600;
   color: #f8fafc;
 }
-.sheets-icon { width: 16px; height: 16px; }
+.sheets-icon { width: 18px; height: 18px; object-fit: contain; }
 
 .win-controls { display: flex; gap: 4px; }
 .win-btn {

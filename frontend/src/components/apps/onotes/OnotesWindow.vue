@@ -2,10 +2,13 @@
 import { ref, watch, computed } from 'vue';
 import { useWindowStore } from '@/stores/windowStore';
 import { useDesktopStore } from '@/stores/desktopStore';
+import { useFileSystemStore, notifyFilesystemChanged } from '@/stores/filesystem';
 import { useWindowBounds } from '@/composables/useWindowBounds';
+import onotesSvg from '@/assets/onotes.svg';
 
 const winStore = useWindowStore();
 const desktopStore = useDesktopStore();
+const fs = useFileSystemStore();
 
 const winState = winStore.windows['onotes'];
 const { x, y, width, height, startDrag, startResize } = useWindowBounds(140, 70, 680, 460);
@@ -20,27 +23,43 @@ const isSaved = ref(true);
 watch(
   () => winState.data,
   (newData) => {
-    // Caso 1: Abriendo una nota real que existe en el escritorio
     if (newData?.noteId) {
-      const item = desktopStore.items.find((i) => i.id === newData.noteId);
-      if (item) {
-        noteName.value = item.name;
-        textContent.value = item.content || '';
+      const desktopItem = desktopStore.items.find((i) => i.id === newData.noteId);
+      if (desktopItem) {
+        noteName.value = desktopItem.name;
+        textContent.value = desktopItem.content || '';
         isSaved.value = true;
+        winStore.windows['onotes'].title = desktopItem.name;
+        return;
+      }
+      const fsItem = fs.nodes.find((n) => n.id === newData.noteId);
+      if (fsItem) {
+        noteName.value = fsItem.name;
+        textContent.value = fsItem.content || '';
+        isSaved.value = true;
+        winStore.windows['onotes'].title = fsItem.name;
+        return;
+      }
+      if (newData?.virtualFile) {
+        noteName.value = newData.virtualFile.name;
+        textContent.value = newData.virtualFile.content;
+        isSaved.value = true;
+        winStore.windows['onotes'].title = newData.virtualFile.name;
         return;
       }
     }
-    // Caso 2: Previsualizando un archivo desde Oxplorer (NO crea archivo en el escritorio)
     if (newData?.virtualFile) {
       noteName.value = newData.virtualFile.name;
       textContent.value = newData.virtualFile.content;
       isSaved.value = true;
+      winStore.windows['onotes'].title = newData.virtualFile.name;
       return;
     }
 
     noteName.value = 'Nueva Nota.txt';
     textContent.value = '';
     isSaved.value = true;
+    winStore.windows['onotes'].title = 'Nueva Nota.txt';
   },
   { immediate: true }
 );
@@ -51,11 +70,18 @@ function onInput() {
   }
 }
 
-function saveFile() {
-  // Solo guarda si es una nota real creada en el escritorio
+async function saveFile() {
   if (activeNoteId.value) {
-    desktopStore.updateNoteContent(activeNoteId.value, textContent.value);
-    isSaved.value = true;
+    try {
+      await fetch(`/api/nodes/${activeNoteId.value}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: textContent.value }),
+      });
+      desktopStore.updateNoteContent(activeNoteId.value, textContent.value);
+      notifyFilesystemChanged();
+      isSaved.value = true;
+    } catch {}
   }
 }
 
@@ -100,12 +126,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
     <!-- Header -->
     <header class="window-header" @mousedown="startDrag($event, winState.isMaximized)" @dblclick="handleDoubleClickHeader">
       <div class="window-title">
-        <svg class="onotes-icon" viewBox="0 0 24 24" fill="none" stroke="#FBBC05" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" y1="13" x2="8" y2="13"></line>
-          <line x1="16" y1="17" x2="8" y2="17"></line>
-        </svg>
+        <img :src="onotesSvg" alt="Onotes" class="onotes-icon" />
         <span>{{ noteName }} {{ isSaved ? '' : '*' }} — Onotes</span>
       </div>
 

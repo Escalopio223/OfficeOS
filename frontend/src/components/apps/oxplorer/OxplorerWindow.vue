@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, watch, onMounted, nextTick } from 'vue';
 import { useFileSystemStore } from '@/stores/filesystem';
 import { useWindowStore } from '@/stores/windowStore';
 import { useDesktopStore } from '@/stores/desktopStore';
@@ -34,15 +34,15 @@ function handleHeaderDoubleClick(e: MouseEvent) {
   }
 }
 
-// Drag nativo para arrastrar archivos fuera de Oxplorer hacia el escritorio/carpetas
+// Drag nativo para arrastrar archivos fuera de Oxplorer hacia el escritorio u otras carpetas
 function onFileDragStart(e: DragEvent, item: any) {
   if (e.dataTransfer) {
     e.dataTransfer.setData('application/json', JSON.stringify(item));
-    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.effectAllowed = 'copyMove';
   }
 }
 
-// Abrir carpetas en Oxplorer o abrir archivos de texto/datos en Onotes
+// Abrir carpetas en Oxplorer o abrir archivos en sus apps correspondientes
 function handleItemDoubleClick(item: any) {
   if (item.is_directory) {
     fs.openDirectory(item);
@@ -53,7 +53,7 @@ function handleItemDoubleClick(item: any) {
 
   // 1. Archivos de hoja de cálculo (.CSV) -> Osheets
   if (ext === 'CSV') {
-    const csvContent = [
+    const csvContent = item.content || [
       'id_transaccion,servicio,region,latencia_ms,estado,fecha',
       `"TX-${item.id.slice(0, 6)}","PostgreSQL Primary","eu-west-1","1.4","OK","2026-10-01"`,
       `"TX-${item.id.slice(0, 5)}A","Redis Cache Layer","eu-west-1","0.2","HIT","2026-10-02"`,
@@ -69,10 +69,10 @@ function handleItemDoubleClick(item: any) {
     return;
   }
 
-  // 2. Archivos de imagen (.JPG, .PNG) -> Ophotos (Usando semilla determinista sin ocupar espacio en BD)
+  // 2. Archivos de imagen (.JPG, .PNG) -> Opics
   if (ext === 'JPG' || ext === 'PNG') {
     const seed = encodeURIComponent(item.name);
-    winStore.openWindow('ophotos', {
+    winStore.openWindow('opics', {
       name: item.name,
       url: `https://picsum.photos/seed/${seed}/900/600`,
       meta: `${formatBytes(item.size_bytes)} • 900x600px • ${ext}`,
@@ -81,32 +81,34 @@ function handleItemDoubleClick(item: any) {
   }
 
   // 3. Archivos de texto y código (.TXT, .MD, .JSON, .LOG, .SQL) -> Onotes
-  let textContent = '';
-  if (ext === 'JSON') {
-    textContent = JSON.stringify(
-      {
-        node_id: item.id,
-        name: item.name,
-        path: item.path,
-        size_bytes: item.size_bytes,
-        mime_type: item.mime_type,
-        storage_engine: 'PostgreSQL LTree + Redis',
-      },
-      null,
-      2
-    );
-  } else if (ext === 'SQL') {
-    textContent = `-- Migración de nodo: ${item.name}\nCREATE INDEX CONCURRENTLY idx_fs_path_gist ON fs_nodes USING GIST (path);\nSELECT * FROM fs_nodes WHERE path <@ '${item.path}' LIMIT 50;`;
-  } else if (ext === 'LOG') {
-    textContent = `[2026-10-13 09:14:22] INFO  [Fastify] GET /api/fs/children?path=${item.path} 200 OK (1.2ms)\n[2026-10-13 09:14:23] DEBUG [Redis] Cache HIT key="dir:${item.path}"\n[2026-10-13 09:14:25] INFO  [Auth] Session validated for user=administrador`;
-  } else if (ext === 'MD') {
-    textContent = `# ${item.name}\n\nRuta en el árbol: \`${item.path}\`\n\n## Detalles técnicos\n- **Tamaño:** ${formatBytes(item.size_bytes)}\n- **MIME:** \`${item.mime_type}\`\n- **Indexación:** Búsqueda difusa por trigramas activa.`;
-  } else {
-    textContent = `Documento: ${item.name}\nRuta: ${item.path}\nTamaño: ${formatBytes(item.size_bytes)}\n\nContenido de texto cargado desde el sistema de archivos OogleOS.`;
+  let textContent = item.content || '';
+  if (!textContent) {
+    if (ext === 'JSON') {
+      textContent = JSON.stringify(
+        {
+          node_id: item.id,
+          name: item.name,
+          path: item.path,
+          size_bytes: item.size_bytes,
+          mime_type: item.mime_type,
+          storage_engine: 'PostgreSQL LTree + Redis',
+        },
+        null,
+        2
+      );
+    } else if (ext === 'SQL') {
+      textContent = `-- Migración de nodo: ${item.name}\nCREATE INDEX CONCURRENTLY idx_fs_path_gist ON fs_nodes USING GIST (path);\nSELECT * FROM fs_nodes WHERE path <@ '${item.path}' LIMIT 50;`;
+    } else if (ext === 'LOG') {
+      textContent = `[2026-10-13 09:14:22] INFO  [Fastify] GET /api/fs/children?path=${item.path} 200 OK (1.2ms)\n[2026-10-13 09:14:23] DEBUG [Redis] Cache HIT key="dir:${item.path}"\n[2026-10-13 09:14:25] INFO  [Auth] Session validated for user=administrador`;
+    } else if (ext === 'MD') {
+      textContent = `# ${item.name}\n\nRuta en el árbol: \`${item.path}\`\n\n## Detalles técnicos\n- **Tamaño:** ${formatBytes(item.size_bytes)}\n- **MIME:** \`${item.mime_type}\`\n- **Indexación:** Búsqueda difusa por trigramas activa.`;
+    } else {
+      textContent = `Documento: ${item.name}\nRuta: ${item.path}\nTamaño: ${formatBytes(item.size_bytes)}\n\nContenido de texto cargado desde el sistema de archivos OogleOS.`;
+    }
   }
 
   winStore.openWindow('onotes', {
-    noteId: null,
+    noteId: item.id,
     virtualFile: {
       name: item.name,
       content: textContent,
@@ -114,8 +116,209 @@ function handleItemDoubleClick(item: any) {
   });
 }
 
+// Modal personalizado para nombrar carpetas y archivos
+const showNameModal = ref(false);
+const modalTitle = ref('');
+const modalInput = ref('');
+const modalType = ref<'folder' | 'file' | 'note'>('folder');
+const modalInputRef = ref<HTMLInputElement | null>(null);
+
+function openCreateModal(type: 'folder' | 'file' | 'note') {
+  closeAllMenus();
+  modalType.value = type;
+  if (type === 'folder') {
+    modalTitle.value = 'Nueva Carpeta';
+    modalInput.value = 'Nueva Carpeta';
+  } else if (type === 'note') {
+    modalTitle.value = 'Nueva Nota (Onotes)';
+    modalInput.value = 'Nueva Nota.txt';
+  } else {
+    modalTitle.value = 'Nuevo Archivo';
+    modalInput.value = 'Nuevo Documento.txt';
+  }
+  showNameModal.value = true;
+  nextTick(() => {
+    modalInputRef.value?.focus();
+    modalInputRef.value?.select();
+  });
+}
+
+function cancelCreateModal() {
+  showNameModal.value = false;
+  modalInput.value = '';
+}
+
+async function confirmCreateModal() {
+  const name = modalInput.value.trim();
+  if (!name) return;
+
+  showNameModal.value = false;
+
+  if (modalType.value === 'folder') {
+    await fs.createNode({
+      name,
+      is_directory: true,
+      parentId: fs.currentFolder?.id,
+      parentPath: fs.currentFolder?.path,
+    });
+  } else if (modalType.value === 'note') {
+    const node = await fs.createNode({
+      name,
+      is_directory: false,
+      content: '',
+      parentId: fs.currentFolder?.id,
+      parentPath: fs.currentFolder?.path,
+    });
+    if (node) {
+      winStore.openWindow('onotes', { noteId: node.id });
+    }
+  } else {
+    await fs.createNode({
+      name,
+      is_directory: false,
+      content: '',
+      parentId: fs.currentFolder?.id,
+      parentPath: fs.currentFolder?.path,
+    });
+  }
+}
+
+// Soltar un archivo o carpeta dentro de una tarjeta de subcarpeta en Oxplorer
+async function onDropOnDirectoryItem(e: DragEvent, targetFolder: any) {
+  e.preventDefault();
+  e.stopPropagation();
+  const raw = e.dataTransfer?.getData('application/json');
+  if (!raw) return;
+  try {
+    const source = JSON.parse(raw);
+    if (source.id === targetFolder.id) return;
+    await fs.moveNode(source.id, targetFolder.id);
+  } catch {}
+}
+
+// Soltar un elemento en el fondo de la carpeta actual de Oxplorer
+async function onDropOnCurrentFolder(e: DragEvent) {
+  e.preventDefault();
+  const raw = e.dataTransfer?.getData('application/json');
+  if (!raw || !fs.currentFolder) return;
+  try {
+    const source = JSON.parse(raw);
+    if (source.id === fs.currentFolder.id || source.parent_id === fs.currentFolder.id) return;
+    await fs.moveNode(source.id, fs.currentFolder.id);
+  } catch {}
+}
+
+// Menús Contextuales Internos de Oxplorer
+const showOxplorerMenu = ref(false);
+const oxplorerMenuPos = ref({ x: 0, y: 0 });
+
+const showItemMenu = ref(false);
+const itemMenuPos = ref({ x: 0, y: 0 });
+const selectedItem = ref<any | null>(null);
+
+function closeAllMenus() {
+  showOxplorerMenu.value = false;
+  showItemMenu.value = false;
+}
+
+function onOxplorerContextMenu(e: MouseEvent) {
+  if ((e.target as HTMLElement).closest('.file-card')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeAllMenus();
+
+  const winEl = (e.currentTarget as HTMLElement).closest('.glass-window');
+  if (winEl) {
+    const rect = winEl.getBoundingClientRect();
+    oxplorerMenuPos.value = {
+      x: Math.min(e.clientX - rect.left, rect.width - 180),
+      y: Math.min(e.clientY - rect.top, rect.height - 110),
+    };
+  } else {
+    oxplorerMenuPos.value = { x: e.clientX, y: e.clientY };
+  }
+  showOxplorerMenu.value = true;
+}
+
+function onItemContextMenu(e: MouseEvent, item: any) {
+  e.preventDefault();
+  e.stopPropagation();
+  closeAllMenus();
+  selectedItem.value = item;
+
+  const winEl = (e.currentTarget as HTMLElement).closest('.glass-window');
+  if (winEl) {
+    const rect = winEl.getBoundingClientRect();
+    itemMenuPos.value = {
+      x: Math.min(e.clientX - rect.left, rect.width - 180),
+      y: Math.min(e.clientY - rect.top, rect.height - 110),
+    };
+  } else {
+    itemMenuPos.value = { x: e.clientX, y: e.clientY };
+  }
+  showItemMenu.value = true;
+}
+
+function handleOpenSelectedItem() {
+  if (selectedItem.value) {
+    handleItemDoubleClick(selectedItem.value);
+  }
+  closeAllMenus();
+}
+
+async function handleDeleteSelectedItem() {
+  if (!selectedItem.value) return;
+  const item = selectedItem.value;
+  closeAllMenus();
+
+  if (winStore.windows['onotes']?.data?.noteId === item.id) {
+    winStore.closeWindow('onotes');
+  }
+
+  await fs.deleteNode(item.id);
+}
+
+function handleCreateFolderFromMenu() {
+  closeAllMenus();
+  openCreateModal('folder');
+}
+
+function handleCreateNoteFromMenu() {
+  closeAllMenus();
+  openCreateModal('note');
+}
+
+// Reaccionar a la apertura con ruta específica desde el escritorio o accesos directos
+watch(
+  () => winStore.windows['oxplorer']?.data,
+  (newData) => {
+    if (newData?.targetPath) {
+      fs.navigateToPath(newData.targetPath);
+    } else if (newData?.targetFolder) {
+      fs.openDirectory(newData.targetFolder);
+    }
+  },
+  { deep: true }
+);
+
+watch(
+  () => fs.currentFolder,
+  (folder) => {
+    if (folder) {
+      winStore.windows['oxplorer'].title = folder.path === 'root' ? 'Oxplorer' : (folder.name || 'Oxplorer');
+    }
+  }
+);
+
 onMounted(() => {
-  fs.initRoot();
+  const initData = winStore.windows['oxplorer']?.data;
+  if (initData?.targetPath) {
+    fs.navigateToPath(initData.targetPath);
+  } else if (initData?.targetFolder) {
+    fs.openDirectory(initData.targetFolder);
+  } else {
+    fs.initRoot();
+  }
 });
 </script>
 
@@ -136,6 +339,7 @@ onMounted(() => {
           }
     "
     @mousedown="winStore.focusWindow('oxplorer')"
+    @click="closeAllMenus"
   >
     <!-- Tiradores de Redimensionamiento (Bordes y Esquinas) -->
     <template v-if="!winState.isMaximized">
@@ -194,14 +398,34 @@ onMounted(() => {
       </div>
     </header>
 
-    <!-- Barra de navegación y búsqueda -->
+    <!-- Barra de navegación y búsqueda con creación de carpetas y archivos -->
     <div class="glass-toolbar">
       <div class="nav-actions">
-        <button class="glass-btn nav" :disabled="fs.history.length === 0" @click="searchQuery = ''; fs.goBack()">
+        <button class="glass-btn nav" :disabled="fs.history.length === 0" title="Atrás" @click="searchQuery = ''; fs.goBack()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
             <line x1="19" y1="12" x2="5" y2="12"></line>
             <polyline points="12 19 5 12 12 5"></polyline>
           </svg>
+        </button>
+      </div>
+
+      <div class="action-buttons">
+        <button class="action-btn" title="Crear Carpeta" @click="openCreateModal('folder')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            <line x1="12" y1="11" x2="12" y2="17"></line>
+            <line x1="9" y1="14" x2="15" y2="14"></line>
+          </svg>
+          <span>+ Carpeta</span>
+        </button>
+        <button class="action-btn" title="Crear Archivo" @click="openCreateModal('file')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="11" x2="12" y2="17"></line>
+            <line x1="9" y1="14" x2="15" y2="14"></line>
+          </svg>
+          <span>+ Archivo</span>
         </button>
       </div>
 
@@ -227,16 +451,32 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Contenido de archivos -->
-    <main class="glass-content" :class="{ 'is-loading': fs.loading }">
+    <!-- Contenido de archivos con soporte de Drop sobre carpetas y fondo y clic derecho -->
+    <main
+      class="glass-content"
+      :class="{ 'is-loading': fs.loading }"
+      :data-oxplorer-content="true"
+      :data-current-folder-id="fs.currentFolder?.id"
+      :data-current-folder-name="fs.currentFolder?.name || 'Oxplorer'"
+      @dragover.prevent
+      @drop="onDropOnCurrentFolder($event)"
+      @contextmenu.stop="onOxplorerContextMenu"
+    >
       <div
         v-for="item in fs.nodes"
         :key="item.id"
         class="file-card"
-        :class="{ 'is-dir': item.is_directory }"
+        :class="{ 'is-dir': item.is_directory, 'is-selected': selectedItem?.id === item.id && showItemMenu }"
+        :data-oxplorer-node="true"
+        :data-node-id="item.id"
+        :data-node-name="item.name"
+        :data-is-dir="item.is_directory ? 'true' : 'false'"
         draggable="true"
         @dragstart="onFileDragStart($event, item)"
         @dblclick="handleItemDoubleClick(item)"
+        @contextmenu.stop.prevent="onItemContextMenu($event, item)"
+        @dragover.prevent
+        @drop.stop="item.is_directory ? onDropOnDirectoryItem($event, item) : null"
       >
         <div class="icon-container">
           <svg v-if="item.is_directory" class="folder-svg" viewBox="0 0 24 24">
@@ -273,6 +513,77 @@ onMounted(() => {
       </div>
     </main>
 
+    <!-- Menú Contextual de Fondo de Oxplorer -->
+    <div
+      v-if="showOxplorerMenu"
+      class="oxplorer-context-menu"
+      :style="{ left: `${oxplorerMenuPos.x}px`, top: `${oxplorerMenuPos.y}px` }"
+      @click.stop
+    >
+      <button class="context-item" @click="handleCreateFolderFromMenu">
+        📁 Nueva Carpeta
+      </button>
+      <button class="context-item" @click="handleCreateNoteFromMenu">
+        📝 Nueva Nota (Onotes)
+      </button>
+    </div>
+
+    <!-- Menú Contextual de Elemento (Archivo / Carpeta) en Oxplorer -->
+    <div
+      v-if="showItemMenu && selectedItem"
+      class="oxplorer-context-menu"
+      :style="{ left: `${itemMenuPos.x}px`, top: `${itemMenuPos.y}px` }"
+      @click.stop
+    >
+      <button class="context-item" @click="handleOpenSelectedItem">
+        <span>{{ selectedItem.is_directory ? '📁 Abrir Carpeta' : '📂 Abrir' }}</span>
+      </button>
+      <div class="menu-divider"></div>
+      <button class="context-item danger" @click="handleDeleteSelectedItem">
+        <span>🗑️ Eliminar</span>
+      </button>
+    </div>
+
+    <!-- Modal Glassmorphism de Creación (20% ancho x 20% alto, centrado, no cerrable salvo Cancelar o Crear) -->
+    <Teleport to="body">
+      <div v-if="showNameModal" class="modal-backdrop">
+        <div class="name-modal" @click.stop>
+          <div class="modal-header">
+            <div class="modal-title-wrap">
+              <span class="modal-icon">{{ modalType === 'folder' ? '📁' : modalType === 'note' ? '📝' : '📄' }}</span>
+              <h3 class="modal-title">{{ modalTitle }}</h3>
+            </div>
+          </div>
+
+          <div class="modal-body">
+            <label class="modal-label">Nombre del elemento:</label>
+            <input
+              ref="modalInputRef"
+              v-model="modalInput"
+              type="text"
+              class="modal-input"
+              placeholder="Escribe el nombre..."
+              @keydown.enter.prevent="confirmCreateModal"
+            />
+          </div>
+
+          <div class="modal-actions">
+            <button class="modal-btn secondary" type="button" @click="cancelCreateModal">
+              Cancelar
+            </button>
+            <button
+              class="modal-btn primary"
+              type="button"
+              :disabled="!modalInput.trim()"
+              @click="confirmCreateModal"
+            >
+              Crear
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- Barra de estado -->
     <footer class="window-statusbar">
       <div class="status-info">
@@ -288,6 +599,87 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.action-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.action-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+}
+
+.action-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.oxplorer-context-menu {
+  position: absolute;
+  background: rgba(24, 24, 37, 0.95);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+}
+
+.context-item {
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.context-item:hover {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+
+.context-item.danger {
+  color: #fca5a5;
+}
+
+.context-item.danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}
+
 .glass-window {
   position: absolute;
   background: rgba(15, 23, 42, 0.82);
@@ -548,6 +940,24 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
+.file-card.is-selected {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.file-card.is-drop-hover {
+  background: rgba(56, 189, 248, 0.25) !important;
+  border-color: #38bdf8 !important;
+  transform: scale(1.06) !important;
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.4) !important;
+}
+
+.glass-content.is-drop-hover {
+  background: rgba(56, 189, 248, 0.05);
+  outline: 2px dashed rgba(56, 189, 248, 0.45);
+  outline-offset: -4px;
+}
+
 .icon-container {
   width: 48px;
   height: 48px;
@@ -618,4 +1028,153 @@ onMounted(() => {
 .status-info { display: flex; align-items: center; gap: 8px; }
 .status-divider { color: #475569; }
 .status-legend { font-family: monospace; font-size: 10px; color: #64748b; }
+
+/* Modal Glassmorphism de Creación (20% pantalla ancho x alto, centrado) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 7, 15, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999999;
+}
+
+.name-modal {
+  width: 20vw;
+  height: 20vh;
+  min-width: 320px;
+  min-height: 190px;
+  background: rgba(18, 24, 38, 0.94);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  box-shadow: 
+    0 25px 60px rgba(0, 0, 0, 0.75), 
+    0 0 35px rgba(56, 189, 248, 0.15),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  animation: modalPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.93) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-icon {
+  font-size: 20px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f8fafc;
+  letter-spacing: -0.01em;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.modal-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.modal-input {
+  background: rgba(10, 15, 29, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #ffffff;
+  font-size: 13px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.modal-input:focus {
+  border-color: #38bdf8;
+  background: rgba(10, 15, 29, 0.9);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modal-btn {
+  padding: 7px 16px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  border: none;
+}
+
+.modal-btn.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.modal-btn.primary {
+  background: linear-gradient(135deg, #0284c7, #38bdf8);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);
+}
+
+.modal-btn.primary:hover:not(:disabled) {
+  box-shadow: 0 6px 16px rgba(56, 189, 248, 0.45);
+  transform: translateY(-1px);
+}
+
+.modal-btn.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
 </style>

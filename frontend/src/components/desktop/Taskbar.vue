@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import oogleLogoSvg from '@/assets/oogle-logo.svg';
 import oxplorerSvg from '@/assets/oxplorer.svg';
+import onotesSvg from '@/assets/onotes.svg';
+import osheetsSvg from '@/assets/osheets.svg';
+import opicsSvg from '@/assets/opics.svg';
 import { useWindowStore } from '@/stores/windowStore';
 
 const winStore = useWindowStore();
@@ -8,6 +11,21 @@ const winStore = useWindowStore();
 defineEmits<{
   (e: 'toggle-start'): void;
 }>();
+
+function getWindowIcon(id: string): string {
+  switch (id) {
+    case 'onotes':
+      return onotesSvg;
+    case 'oxplorer':
+      return oxplorerSvg;
+    case 'osheets':
+      return osheetsSvg;
+    case 'opics':
+      return opicsSvg;
+    default:
+      return oxplorerSvg;
+  }
+}
 </script>
 
 <template>
@@ -19,17 +37,17 @@ defineEmits<{
 
       <!-- Apps abiertas en la barra de tareas -->
       <div class="taskbar-apps">
-        <button
-          v-for="win in winStore.windows"
-          v-show="win.isOpen"
-          :key="win.id"
-          class="taskbar-item"
-          :class="{ active: !win.isMinimized }"
-          @click="winStore.toggleMinimize(win.id)"
-        >
-          <img :src="oxplorerSvg" alt="Oxplorer" class="app-icon" />
-          <span>{{ win.title }}</span>
-        </button>
+        <template v-for="win in winStore.windows" :key="win?.id">
+          <button
+            v-if="win && win.isOpen"
+            class="taskbar-item"
+            :class="{ active: !win.isMinimized }"
+            @click="winStore.toggleMinimize(win.id)"
+          >
+            <img :src="getWindowIcon(win.id)" :alt="win.title" class="app-icon" />
+            <span>{{ win.title }}</span>
+          </button>
+        </template>
       </div>
     </div>
 

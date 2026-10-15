@@ -6,6 +6,11 @@ export interface FileNode {
     mime_type: string | null
     parent_id: string | null
     path: string
+    pos_x?: number | null
+    pos_y?: number | null
+    content?: string | null
+    created_at?: string
+    updated_at?: string
 }
 
 export interface NodesResponse {
@@ -13,6 +18,7 @@ export interface NodesResponse {
     source?: string
     count: number
     page: number
+    currentFolder?: FileNode | null
     nodes: FileNode[]
 }
 
