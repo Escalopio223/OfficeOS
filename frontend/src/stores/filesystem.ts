@@ -15,6 +15,19 @@ export const useFileSystemStore = defineStore('filesystem', () => {
     const loading = ref<boolean>(false)
     const latency = ref<string>('0ms')
     const dataSource = ref<string>('N/A')
+    const unlockedFolderIds = ref<Set<string>>(new Set())
+
+    function isFolderUnlocked(folderId: string): boolean {
+        return unlockedFolderIds.value.has(folderId)
+    }
+
+    function unlockFolder(folderId: string) {
+        unlockedFolderIds.value.add(folderId)
+    }
+
+    function lockFolder(folderId: string) {
+        unlockedFolderIds.value.delete(folderId)
+    }
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -104,6 +117,7 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         parentPath?: string
         pos_x?: number | null
         pos_y?: number | null
+        password?: string
     }): Promise<FileNode | null> {
         try {
             const res = await fetch('/api/nodes', {
@@ -113,6 +127,10 @@ export const useFileSystemStore = defineStore('filesystem', () => {
             })
             if (!res.ok) return null
             const created: FileNode = await res.json()
+
+            if (created.is_directory && params.password) {
+                unlockFolder(created.id)
+            }
 
             // Si se creó en la carpeta abierta en Oxplorer, refrescar lista
             if (
@@ -232,6 +250,80 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         }, 200)
     }
 
+    async function verifyFolderPassword(folderId: string, password: string): Promise<boolean> {
+        try {
+            const res = await fetch(`/api/nodes/${folderId}/verify-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password }),
+            })
+            if (!res.ok) return false
+            const data = await res.json()
+            if (data.valid) {
+                unlockFolder(folderId)
+                return true
+            }
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    async function setFolderPassword(
+        folderId: string,
+        password: string,
+        currentPassword?: string
+    ): Promise<{ success: boolean; error?: string }> {
+        try {
+            const res = await fetch(`/api/nodes/${folderId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password, currentPassword }),
+            })
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}))
+                return { success: false, error: errData.error || 'Error al proteger la carpeta' }
+            }
+            const updated: FileNode = await res.json()
+            unlockFolder(folderId)
+            const idx = nodes.value.findIndex((n) => n.id === folderId)
+            if (idx !== -1) {
+                nodes.value[idx] = updated
+            }
+            notifyFilesystemChanged()
+            return { success: true }
+        } catch {
+            return { success: false, error: 'Error de conexión' }
+        }
+    }
+
+    async function removeFolderPassword(
+        folderId: string,
+        currentPassword: string
+    ): Promise<{ success: boolean; error?: string }> {
+        try {
+            const res = await fetch(`/api/nodes/${folderId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: null, currentPassword }),
+            })
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}))
+                return { success: false, error: errData.error || 'Error al quitar la protección' }
+            }
+            const updated: FileNode = await res.json()
+            lockFolder(folderId)
+            const idx = nodes.value.findIndex((n) => n.id === folderId)
+            if (idx !== -1) {
+                nodes.value[idx] = updated
+            }
+            notifyFilesystemChanged()
+            return { success: true }
+        } catch {
+            return { success: false, error: 'Error de conexión' }
+        }
+    }
+
     // Sincronización en tiempo real: recarga la carpeta activa cuando haya cambios en el sistema de archivos
     watch(filesystemEvent, () => {
         if (currentFolder.value) {
@@ -246,6 +338,13 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         loading,
         latency,
         dataSource,
+        unlockedFolderIds,
+        isFolderUnlocked,
+        unlockFolder,
+        lockFolder,
+        verifyFolderPassword,
+        setFolderPassword,
+        removeFolderPassword,
         initRoot,
         fetchFolderContents,
         navigateToPath,

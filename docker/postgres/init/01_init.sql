@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS filesystem_nodes (
     mime_type VARCHAR(100),
     parent_id UUID REFERENCES filesystem_nodes(id) ON DELETE CASCADE,
     path LTREE NOT NULL,
+    pos_x INTEGER,
+    pos_y INTEGER,
+    content TEXT,
+    password VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

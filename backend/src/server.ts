@@ -89,7 +89,7 @@ app.get('/api/nodes', async (request, reply) => {
 
     if (parentPath) {
         const parentRes = await pool.query(
-            'SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content FROM filesystem_nodes WHERE path = $1::ltree LIMIT 1;',
+            'SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> \'\') AS is_protected FROM filesystem_nodes WHERE path = $1::ltree LIMIT 1;',
             [parentPath]
         );
         if (parentRes.rows.length === 0) {
@@ -97,7 +97,7 @@ app.get('/api/nodes', async (request, reply) => {
         }
         currentFolderNode = parentRes.rows[0];
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content
+          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
           FROM filesystem_nodes
           WHERE parent_id = $1
           ORDER BY is_directory DESC, name ASC
@@ -106,14 +106,14 @@ app.get('/api/nodes', async (request, reply) => {
         params = [currentFolderNode.id, limitNum, offset];
     } else if (parentId) {
         const parentRes = await pool.query(
-            'SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content FROM filesystem_nodes WHERE id = $1 LIMIT 1;',
+            'SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> \'\') AS is_protected FROM filesystem_nodes WHERE id = $1 LIMIT 1;',
             [parentId]
         );
         if (parentRes.rows.length > 0) {
             currentFolderNode = parentRes.rows[0];
         }
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content
+          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
           FROM filesystem_nodes
           WHERE parent_id = $1
           ORDER BY is_directory DESC, name ASC
@@ -122,7 +122,7 @@ app.get('/api/nodes', async (request, reply) => {
         params = [parentId, limitNum, offset];
     } else {
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content
+          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
           FROM filesystem_nodes
           WHERE parent_id IS NULL
           LIMIT 1;
@@ -161,6 +161,7 @@ app.post('/api/nodes', async (request, reply) => {
         pos_y = null,
         content = null,
         mime_type = null,
+        password = null,
     } = request.body as {
         name?: string;
         is_directory?: boolean;
@@ -170,6 +171,7 @@ app.post('/api/nodes', async (request, reply) => {
         pos_y?: number | null;
         content?: string | null;
         mime_type?: string | null;
+        password?: string | null;
     };
 
     if (!name || !name.trim()) {
@@ -201,6 +203,7 @@ app.post('/api/nodes', async (request, reply) => {
     const newPath = `${parentRow.path}.${label}`;
     const contentStr = content ?? (isDir ? null : '');
     const sizeBytes = isDir ? 0 : Buffer.byteLength(contentStr || '', 'utf8');
+    const folderPassword = (isDir && password && password.trim()) ? password.trim() : null;
 
     let finalMime = mime_type;
     if (!finalMime && !isDir) {
@@ -214,9 +217,9 @@ app.post('/api/nodes', async (request, reply) => {
 
     const query = `
       INSERT INTO filesystem_nodes (
-        name, is_directory, parent_id, path, pos_x, pos_y, content, size_bytes, mime_type
-      ) VALUES ($1, $2, $3, $4::ltree, $5, $6, $7, $8, $9)
-      RETURNING id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, created_at, updated_at;
+        name, is_directory, parent_id, path, pos_x, pos_y, content, size_bytes, mime_type, password
+      ) VALUES ($1, $2, $3, $4::ltree, $5, $6, $7, $8, $9, $10)
+      RETURNING id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected, created_at, updated_at;
     `;
 
     const { rows } = await pool.query(query, [
@@ -229,6 +232,7 @@ app.post('/api/nodes', async (request, reply) => {
         contentStr,
         sizeBytes,
         finalMime,
+        folderPassword,
     ]);
 
     await invalidateDirCache();
@@ -236,7 +240,7 @@ app.post('/api/nodes', async (request, reply) => {
     return reply.status(201).send(rows[0]);
 });
 
-// 3. Mover nodo o actualizar coordenadas/contenido/nombre
+// 3. Mover nodo o actualizar coordenadas/contenido/nombre/contraseña
 app.patch('/api/nodes/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     const {
@@ -246,6 +250,8 @@ app.patch('/api/nodes/:id', async (request, reply) => {
         targetFolderPath,
         name,
         content,
+        password,
+        currentPassword,
     } = request.body as {
         pos_x?: number | null;
         pos_y?: number | null;
@@ -253,10 +259,12 @@ app.patch('/api/nodes/:id', async (request, reply) => {
         targetFolderPath?: string;
         name?: string;
         content?: string | null;
+        password?: string | null;
+        currentPassword?: string;
     };
 
     const nodeRes = await pool.query(
-        'SELECT id, name, is_directory, path, parent_id, pos_x, pos_y, content FROM filesystem_nodes WHERE id = $1',
+        'SELECT id, name, is_directory, path, parent_id, pos_x, pos_y, content, password FROM filesystem_nodes WHERE id = $1',
         [id]
     );
 
@@ -265,6 +273,15 @@ app.patch('/api/nodes/:id', async (request, reply) => {
     }
 
     const existing = nodeRes.rows[0];
+
+    // Validación de contraseña si se intenta modificar o eliminar la contraseña existente
+    if (password !== undefined) {
+        if (existing.password && existing.password.trim() !== '') {
+            if (!currentPassword || currentPassword.trim() !== existing.password) {
+                return reply.status(401).send({ error: 'Contraseña actual incorrecta' });
+            }
+        }
+    }
 
     // Protección para nodos raíz y escritorio
     if (existing.path === 'root' || existing.path === 'root.desktop') {
@@ -338,7 +355,7 @@ app.patch('/api/nodes/:id', async (request, reply) => {
                      pos_y = $4,
                      updated_at = NOW()
                  WHERE id = $5
-                 RETURNING id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, created_at, updated_at;`,
+                 RETURNING id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected, created_at, updated_at;`,
                 [targetRow.id, newPath, newPosX, newPosY, existing.id]
             );
 
@@ -354,11 +371,13 @@ app.patch('/api/nodes/:id', async (request, reply) => {
         }
     }
 
-    // Caso B: Actualización sin cambio de carpeta (coordenadas, nombre, contenido)
+    // Caso B: Actualización sin cambio de carpeta (coordenadas, nombre, contenido, contraseña)
     const hasPosX = pos_x !== undefined;
     const hasPosY = pos_y !== undefined;
     const newName = name && name.trim() ? name.trim() : null;
     const hasContent = content !== undefined;
+    const hasPassword = password !== undefined;
+    const newPassword = (password && password.trim()) ? password.trim() : null;
 
     const updateQuery = `
       UPDATE filesystem_nodes
@@ -368,9 +387,10 @@ app.patch('/api/nodes/:id', async (request, reply) => {
         name = COALESCE($5, name),
         content = CASE WHEN $6::boolean THEN $7 ELSE content END,
         size_bytes = CASE WHEN $6::boolean AND $7 IS NOT NULL THEN octet_length($7) ELSE size_bytes END,
+        password = CASE WHEN $8::boolean THEN $9 ELSE password END,
         updated_at = NOW()
-      WHERE id = $8
-      RETURNING id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, created_at, updated_at;
+      WHERE id = $10
+      RETURNING id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected, created_at, updated_at;
     `;
 
     const { rows } = await pool.query(updateQuery, [
@@ -381,6 +401,8 @@ app.patch('/api/nodes/:id', async (request, reply) => {
         newName,
         hasContent,
         content ?? null,
+        hasPassword,
+        newPassword,
         id,
     ]);
 
@@ -421,7 +443,7 @@ app.get('/api/nodes/search', async (request, reply) => {
     const start = performance.now();
 
     const query = `
-    SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content
+    SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
     FROM filesystem_nodes
     WHERE name ILIKE '%' || $1 || '%'
     ORDER BY is_directory DESC, name ASC
@@ -439,31 +461,57 @@ app.get('/api/nodes/search', async (request, reply) => {
     };
 });
 
-// 6. Obtener imágenes de todo el sistema (con búsqueda opcional por nombre)
+// 6. Verificar contraseña de una carpeta
+app.post('/api/nodes/:id/verify-password', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { password } = (request.body || {}) as { password?: string };
+
+    const res = await pool.query('SELECT password FROM filesystem_nodes WHERE id = $1', [id]);
+    if (res.rows.length === 0) {
+        return reply.status(404).send({ error: 'Nodo no encontrado' });
+    }
+    const stored = res.rows[0].password;
+    if (!stored || stored === '') {
+        return { valid: true };
+    }
+    const isValid = (password || '').trim() === stored;
+    return { valid: isValid };
+});
+
+// 7. Obtener imágenes de todo el sistema (excluyendo carpetas protegidas)
 app.get('/api/nodes/images', async (request, reply) => {
     const { q, limit = 100 } = request.query as { q?: string; limit?: number };
     const limitNum = Math.min(200, Math.max(1, Number(limit)));
     const start = performance.now();
 
     const imageFilter = `(name ILIKE '%.jpg' OR name ILIKE '%.jpeg' OR name ILIKE '%.png' OR name ILIKE '%.webp' OR name ILIKE '%.svg' OR name ILIKE '%.gif')`;
+    const secureFolderExclusion = `
+      AND NOT EXISTS (
+        SELECT 1 FROM filesystem_nodes pf
+        WHERE pf.is_directory = true
+          AND pf.password IS NOT NULL
+          AND pf.password <> ''
+          AND filesystem_nodes.path <@ pf.path
+      )
+    `;
 
     let query: string;
     let params: any[];
 
     if (q && q.trim().length > 0) {
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content
+          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
           FROM filesystem_nodes
-          WHERE is_directory = false AND ${imageFilter} AND name ILIKE '%' || $1 || '%'
+          WHERE is_directory = false AND ${imageFilter} ${secureFolderExclusion} AND name ILIKE '%' || $1 || '%'
           ORDER BY name ASC
           LIMIT $2;
         `;
         params = [q.trim(), limitNum];
     } else {
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content
+          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
           FROM filesystem_nodes
-          WHERE is_directory = false AND ${imageFilter}
+          WHERE is_directory = false AND ${imageFilter} ${secureFolderExclusion}
           ORDER BY name ASC
           LIMIT $1;
         `;
@@ -483,6 +531,7 @@ app.get('/api/nodes/images', async (request, reply) => {
 
 const startServer = async () => {
     try {
+        await pool.query('ALTER TABLE filesystem_nodes ADD COLUMN IF NOT EXISTS password VARCHAR(255) NULL;');
         await redis.connect();
         console.log('Conectado a Redis.');
         await app.listen({ port: 3000, host: '0.0.0.0' });

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import type { FileNode, NodesResponse } from '@/types/filesystem';
-import { filesystemEvent, notifyFilesystemChanged } from '@/stores/filesystem';
+import { filesystemEvent, notifyFilesystemChanged, useFileSystemStore } from '@/stores/filesystem';
 
 export interface DesktopItem extends FileNode {
     type: 'folder' | 'note' | 'oxplorer-node';
@@ -173,7 +173,8 @@ export const useDesktopStore = defineStore('desktop', () => {
     async function createFolder(
         name = 'Nueva Carpeta',
         x = 120,
-        y = 220
+        y = 220,
+        password?: string
     ): Promise<DesktopItem | null> {
         try {
             const res = await fetch('/api/nodes', {
@@ -185,12 +186,17 @@ export const useDesktopStore = defineStore('desktop', () => {
                     parentPath: 'root.desktop',
                     pos_x: x,
                     pos_y: y,
+                    password: password || undefined,
                 }),
             });
             if (!res.ok) return null;
             const node: FileNode = await res.json();
             const newItem = toDesktopItem(node, x, y);
             items.value.push(newItem);
+            if (password) {
+                const fsStore = useFileSystemStore();
+                fsStore.unlockFolder(node.id);
+            }
             notifyFilesystemChanged();
             return newItem;
         } catch {

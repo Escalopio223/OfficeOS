@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue';
 import { useWindowStore } from '@/stores/windowStore';
 import { useWindowBounds } from '@/composables/useWindowBounds';
+import { filesystemEvent } from '@/stores/filesystem';
 import opicsSvg from '@/assets/opics.svg';
 
 interface ImageNode {
@@ -152,6 +153,12 @@ watch(
   },
   { immediate: true }
 );
+
+watch(filesystemEvent, () => {
+  if (winState.isOpen) {
+    fetchImages(searchQuery.value);
+  }
+});
 
 function handleDoubleClickHeader(e: MouseEvent) {
   const target = e.target as HTMLElement;

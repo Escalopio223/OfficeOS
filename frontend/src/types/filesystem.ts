@@ -9,6 +9,7 @@ export interface FileNode {
     pos_x?: number | null
     pos_y?: number | null
     content?: string | null
+    is_protected?: boolean
     created_at?: string
     updated_at?: string
 }

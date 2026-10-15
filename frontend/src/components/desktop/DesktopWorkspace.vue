@@ -11,6 +11,7 @@ import oxplorerSvg from '@/assets/oxplorer.svg';
 import onotesSvg from '@/assets/onotes.svg';
 import osheetsSvg from '@/assets/osheets.svg';
 import opicsSvg from '@/assets/opics.svg';
+import SecurityModal from '@/components/common/SecurityModal.vue';
 
 const winStore = useWindowStore();
 const desktopStore = useDesktopStore();
@@ -391,11 +392,104 @@ function closeAllMenus() {
   showItemMenu.value = false;
 }
 
+// Modal de seguridad para carpetas protegidas
+const securityModalOpen = ref(false);
+const securityModalMode = ref<'unlock' | 'create-secure' | 'set-password' | 'remove-password'>('unlock');
+const securityTargetFolder = ref<DesktopItem | null>(null);
+const securityError = ref('');
+const securityLoading = ref(false);
+
+function openUnlockModal(folder: DesktopItem) {
+  securityTargetFolder.value = folder;
+  securityModalMode.value = 'unlock';
+  securityError.value = '';
+  securityModalOpen.value = true;
+}
+
+function handleCreateSecureFolder() {
+  closeAllMenus();
+  securityTargetFolder.value = null;
+  securityModalMode.value = 'create-secure';
+  securityError.value = '';
+  securityModalOpen.value = true;
+}
+
+function handleSetProtection() {
+  if (!selectedItem.value) return;
+  const item = selectedItem.value;
+  closeAllMenus();
+  securityTargetFolder.value = item;
+  securityModalMode.value = 'set-password';
+  securityError.value = '';
+  securityModalOpen.value = true;
+}
+
+function handleRemoveProtection() {
+  if (!selectedItem.value) return;
+  const item = selectedItem.value;
+  closeAllMenus();
+  securityTargetFolder.value = item;
+  securityModalMode.value = 'remove-password';
+  securityError.value = '';
+  securityModalOpen.value = true;
+}
+
+async function onSecurityConfirm(payload: { name: string; password: string }) {
+  if (securityModalMode.value === 'unlock') {
+    if (!securityTargetFolder.value) return;
+    securityLoading.value = true;
+    securityError.value = '';
+    const valid = await fs.verifyFolderPassword(securityTargetFolder.value.id, payload.password);
+    securityLoading.value = false;
+    if (valid) {
+      const folder = securityTargetFolder.value;
+      securityModalOpen.value = false;
+      winStore.openWindow('oxplorer', { targetPath: folder.path, targetFolder: folder });
+    } else {
+      securityError.value = 'Contraseña incorrecta';
+    }
+  } else if (securityModalMode.value === 'create-secure') {
+    const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+    securityLoading.value = true;
+    await desktopStore.createFolder(payload.name, freePos.x, freePos.y, payload.password);
+    securityLoading.value = false;
+    securityModalOpen.value = false;
+  } else if (securityModalMode.value === 'set-password') {
+    if (!securityTargetFolder.value) return;
+    securityLoading.value = true;
+    securityError.value = '';
+    const res = await fs.setFolderPassword(securityTargetFolder.value.id, payload.password);
+    securityLoading.value = false;
+    if (res.success) {
+      securityModalOpen.value = false;
+      await desktopStore.fetchDesktopItems();
+    } else {
+      securityError.value = res.error || 'Error al proteger la carpeta';
+    }
+  } else if (securityModalMode.value === 'remove-password') {
+    if (!securityTargetFolder.value) return;
+    securityLoading.value = true;
+    securityError.value = '';
+    const res = await fs.removeFolderPassword(securityTargetFolder.value.id, payload.password);
+    securityLoading.value = false;
+    if (res.success) {
+      securityModalOpen.value = false;
+      await desktopStore.fetchDesktopItems();
+    } else {
+      securityError.value = res.error || 'Contraseña incorrecta';
+    }
+  }
+}
+
 function handleItemDoubleClick(item: DesktopItem) {
   if (isActuallyDragging.value || editingItemId.value === item.id) return;
 
-  // Si es carpeta, abrir en Oxplorer directamente en su ruta
+  // Si es carpeta, verificar si está protegida
   if (item.is_directory) {
+    if (item.is_protected && !fs.isFolderUnlocked(item.id)) {
+      openUnlockModal(item);
+      return;
+    }
     winStore.openWindow('oxplorer', { targetPath: item.path, targetFolder: item });
     return;
   }
@@ -580,9 +674,17 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
         <span>Meter en {{ hoveredDropFolder.name }}</span>
       </div>
 
-      <svg v-if="item.is_directory" class="folder-icon" viewBox="0 0 24 24" fill="#FBBC05">
-        <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
-      </svg>
+      <div v-if="item.is_directory" class="folder-icon-wrapper">
+        <svg class="folder-icon" viewBox="0 0 24 24" fill="#FBBC05">
+          <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+        </svg>
+        <div v-if="item.is_protected" class="padlock-badge" title="Carpeta protegida con contraseña">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" fill="#0f172a"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+      </div>
       <svg v-else class="file-icon" viewBox="0 0 24 24" fill="none" stroke="#FBBC05" stroke-width="2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
         <polyline points="14 2 14 8 20 8"></polyline>
@@ -616,6 +718,9 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       <button class="context-item" @click="handleCreateFolder">
         📁 Nueva Carpeta
       </button>
+      <button class="context-item" @click="handleCreateSecureFolder">
+        🔒 Nueva Carpeta Segura
+      </button>
       <button class="context-item" @click="handleCreateNote">
         📝 Nueva Nota (Onotes)
       </button>
@@ -637,6 +742,14 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       <button class="context-item" @click="handleOpenSelectedItem">
         📂 Abrir
       </button>
+      <template v-if="selectedItem?.is_directory">
+        <button v-if="selectedItem?.is_protected" class="context-item" @click="handleRemoveProtection">
+          🔓 Quitar Protección
+        </button>
+        <button v-else class="context-item" @click="handleSetProtection">
+          🔒 Proteger con contraseña
+        </button>
+      </template>
       <button class="context-item" @click="startRename">
         ✏️ Renombrar
       </button>
@@ -645,6 +758,17 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
         🗑️ Eliminar
       </button>
     </div>
+
+    <!-- Modal de Seguridad para Carpetas -->
+    <SecurityModal
+      :is-open="securityModalOpen"
+      :mode="securityModalMode"
+      :folder-name="securityTargetFolder?.name || ''"
+      :error-message="securityError"
+      :loading="securityLoading"
+      @close="securityModalOpen = false"
+      @confirm="onSecurityConfirm"
+    />
 
     <!-- Ventanas activas -->
     <OxplorerWindow v-if="winStore.windows['oxplorer']?.isOpen" />
@@ -777,6 +901,35 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
   object-fit: contain;
   filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45));
   pointer-events: none;
+}
+
+.folder-icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.padlock-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 20px;
+  height: 20px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1.5px solid #f59e0b;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6), 0 0 8px rgba(245, 158, 11, 0.4);
+  pointer-events: none;
+}
+
+.padlock-badge svg {
+  width: 11px;
+  height: 11px;
+  color: #fbbf24;
 }
 
 .folder-icon {
