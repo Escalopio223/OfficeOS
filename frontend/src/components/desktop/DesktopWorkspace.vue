@@ -5,9 +5,12 @@ import { useDesktopStore, type DesktopItem } from '@/stores/desktopStore';
 import { useFileSystemStore, notifyFilesystemChanged } from '@/stores/filesystem';
 import OxplorerWindow from '@/components/apps/oxplorer/OxplorerWindow.vue';
 import OnotesWindow from '@/components/apps/onotes/OnotesWindow.vue';
-import oxplorerSvg from '@/assets/oxplorer.svg';
 import OsheetsWindow from '@/components/apps/osheets/OsheetsWindow.vue';
 import OpicsWindow from '@/components/apps/opics/OpicsWindow.vue';
+import oxplorerSvg from '@/assets/oxplorer.svg';
+import onotesSvg from '@/assets/onotes.svg';
+import osheetsSvg from '@/assets/osheets.svg';
+import opicsSvg from '@/assets/opics.svg';
 
 const winStore = useWindowStore();
 const desktopStore = useDesktopStore();
@@ -18,8 +21,22 @@ const ICON_WIDTH = 84;
 const ICON_HEIGHT = 86;
 const COLLISION_PADDING = 6; // Margen mínimo de separación entre iconos
 
-// Coordenadas locales para el icono de Oxplorer
-const oxplorerPos = ref({ x: 24, y: 24 });
+// Definición de las 4 aplicaciones principales del sistema en el Escritorio
+interface AppShortcut {
+  id: string;
+  name: string;
+  icon: string;
+  x: number;
+  y: number;
+  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics';
+}
+
+const appShortcuts = ref<AppShortcut[]>([
+  { id: 'app_oxplorer', name: 'Oxplorer', icon: oxplorerSvg, x: 24, y: 24, windowId: 'oxplorer' },
+  { id: 'app_onotes', name: 'Onotes', icon: onotesSvg, x: 24, y: 120, windowId: 'onotes' },
+  { id: 'app_osheets', name: 'Osheets', icon: osheetsSvg, x: 24, y: 216, windowId: 'osheets' },
+  { id: 'app_opics', name: 'Opics', icon: opicsSvg, x: 24, y: 312, windowId: 'opics' },
+]);
 
 // Control de arrastre y estado de colisión en tiempo real
 const activeDragId = ref<string | null>(null);
@@ -50,8 +67,10 @@ function getDesktopBounds() {
 function getAllObstacles(excludeId: string | null) {
   const obstacles: { id: string; x: number; y: number }[] = [];
 
-  if (excludeId !== 'oxplorer') {
-    obstacles.push({ id: 'oxplorer', x: oxplorerPos.value.x, y: oxplorerPos.value.y });
+  for (const app of appShortcuts.value) {
+    if (app.id !== excludeId) {
+      obstacles.push({ id: app.id, x: app.x, y: app.y });
+    }
   }
 
   for (const item of desktopStore.items) {
@@ -172,10 +191,11 @@ function onGlobalMouseMove(e: MouseEvent) {
   const nextX = Math.min(Math.max(12, initialTargetX + deltaX), maxW);
   const nextY = Math.min(Math.max(12, initialTargetY + deltaY), maxH);
 
-  if (activeDragId.value === 'oxplorer') {
-    oxplorerPos.value.x = nextX;
-    oxplorerPos.value.y = nextY;
-    isCurrentlyColliding.value = isColliding(nextX, nextY, 'oxplorer');
+  const appTarget = appShortcuts.value.find((a) => a.id === activeDragId.value);
+  if (appTarget) {
+    appTarget.x = nextX;
+    appTarget.y = nextY;
+    isCurrentlyColliding.value = isColliding(nextX, nextY, appTarget.id);
     return;
   }
 
@@ -252,10 +272,11 @@ async function onGlobalMouseUp() {
   if (activeDragId.value && isActuallyDragging.value) {
     const id = activeDragId.value;
 
-    if (id === 'oxplorer') {
-      const freePos = findFreePosition(oxplorerPos.value.x, oxplorerPos.value.y, 'oxplorer');
-      oxplorerPos.value.x = freePos.x;
-      oxplorerPos.value.y = freePos.y;
+    const appTarget = appShortcuts.value.find((a) => a.id === id);
+    if (appTarget) {
+      const freePos = findFreePosition(appTarget.x, appTarget.y, appTarget.id);
+      appTarget.x = freePos.x;
+      appTarget.y = freePos.y;
     } else {
       const targetItem = desktopStore.items.find((i) => i.id === id);
       if (targetItem) {
@@ -283,9 +304,17 @@ async function onGlobalMouseUp() {
   window.removeEventListener('mouseup', onGlobalMouseUp);
 }
 
-function handleOxplorerDoubleClick() {
+function handleAppShortcutDoubleClick(app: AppShortcut) {
   if (isActuallyDragging.value) return;
-  winStore.openWindow('oxplorer', { targetPath: 'root' });
+  if (app.windowId === 'oxplorer') {
+    winStore.openWindow('oxplorer', { targetPath: 'root' });
+  } else if (app.windowId === 'onotes') {
+    winStore.openWindow('onotes');
+  } else if (app.windowId === 'osheets') {
+    winStore.openWindow('osheets', { isNew: true });
+  } else if (app.windowId === 'opics') {
+    winStore.openWindow('opics', { mode: 'gallery' });
+  }
 }
 
 // --- Menú Contextual del Escritorio ---
@@ -313,6 +342,30 @@ function handleCreateNote() {
       winStore.openWindow('onotes', { noteId: note.id });
     }
   });
+  closeAllMenus();
+}
+
+function handleCreateSheet() {
+  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  desktopStore.createSheet(
+    'Nueva Hoja.csv',
+    'id,producto,precio,stock\n1,Teclado Mecánico,79.99,15\n2,Ratón Inalámbrico,39.99,28',
+    freePos.x,
+    freePos.y
+  ).then((sheet) => {
+    if (sheet) {
+      winStore.openWindow('osheets', {
+        name: sheet.name,
+        content: sheet.content,
+        fileId: sheet.id,
+      });
+    }
+  });
+  closeAllMenus();
+}
+
+function handleOpenOpics() {
+  winStore.openWindow('opics', { mode: 'gallery' });
   closeAllMenus();
 }
 
@@ -353,14 +406,15 @@ function handleItemDoubleClick(item: DesktopItem) {
     winStore.openWindow('osheets', {
       name: item.name,
       content: item.content || 'id,descripcion,valor\n1,Dato A,100\n2,Dato B,200',
+      fileId: item.id,
     });
     return;
   }
 
-  if (ext === 'JPG' || ext === 'PNG') {
+  if (ext === 'JPG' || ext === 'PNG' || ext === 'JPEG' || ext === 'WEBP' || ext === 'SVG') {
     winStore.openWindow('opics', {
       name: item.name,
-      url: `https://picsum.photos/seed/${encodeURIComponent(item.name)}/900/600`,
+      url: `https://picsum.photos/seed/${encodeURIComponent(item.name)}/1000/700`,
       meta: `${item.name} • ${ext}`,
     });
     return;
@@ -409,6 +463,9 @@ function handleDeleteSelectedItem() {
 
   if (winStore.windows['onotes']?.data?.noteId === idToDelete) {
     winStore.closeWindow('onotes');
+  }
+  if (winStore.windows['osheets']?.data?.fileId === idToDelete) {
+    winStore.closeWindow('osheets');
   }
 
   desktopStore.deleteItem(idToDelete);
@@ -471,19 +528,21 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
     @dragover.prevent
     @drop="onDropOnDesktop($event)"
   >
-    <!-- Acceso Oxplorer Arrastrable -->
+    <!-- Accesos Directos de Aplicaciones del Sistema (Oxplorer, Onotes, Osheets, Opics) -->
     <div
+      v-for="app in appShortcuts"
+      :key="app.id"
       class="shortcut-item"
       :class="{
-        'is-dragging': isActuallyDragging && activeDragId === 'oxplorer',
-        'is-overlapping': isActuallyDragging && activeDragId === 'oxplorer' && isCurrentlyColliding
+        'is-dragging': isActuallyDragging && activeDragId === app.id,
+        'is-overlapping': isActuallyDragging && activeDragId === app.id && isCurrentlyColliding
       }"
-      :style="{ left: `${oxplorerPos.x}px`, top: `${oxplorerPos.y}px` }"
-      @mousedown="startItemDrag($event, 'oxplorer', oxplorerPos.x, oxplorerPos.y)"
-      @dblclick="handleOxplorerDoubleClick"
+      :style="{ left: `${app.x}px`, top: `${app.y}px` }"
+      @mousedown="startItemDrag($event, app.id, app.x, app.y)"
+      @dblclick="handleAppShortcutDoubleClick(app)"
     >
-      <img :src="oxplorerSvg" alt="Oxplorer" class="shortcut-icon" draggable="false" />
-      <span class="shortcut-label">Oxplorer</span>
+      <img :src="app.icon" :alt="app.name" class="shortcut-icon" draggable="false" />
+      <span class="shortcut-label">{{ app.name }}</span>
     </div>
 
     <!-- Items dinámicos del escritorio Arrastrables (Carpetas y Notas de root.desktop) -->
@@ -559,6 +618,12 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       </button>
       <button class="context-item" @click="handleCreateNote">
         📝 Nueva Nota (Onotes)
+      </button>
+      <button class="context-item" @click="handleCreateSheet">
+        📊 Nueva Hoja de Cálculo (Osheets)
+      </button>
+      <button class="context-item" @click="handleOpenOpics">
+        🖼️ Galería de Fotos (Opics)
       </button>
     </div>
 

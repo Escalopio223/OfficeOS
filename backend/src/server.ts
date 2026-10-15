@@ -439,6 +439,48 @@ app.get('/api/nodes/search', async (request, reply) => {
     };
 });
 
+// 6. Obtener imágenes de todo el sistema (con búsqueda opcional por nombre)
+app.get('/api/nodes/images', async (request, reply) => {
+    const { q, limit = 100 } = request.query as { q?: string; limit?: number };
+    const limitNum = Math.min(200, Math.max(1, Number(limit)));
+    const start = performance.now();
+
+    const imageFilter = `(name ILIKE '%.jpg' OR name ILIKE '%.jpeg' OR name ILIKE '%.png' OR name ILIKE '%.webp' OR name ILIKE '%.svg' OR name ILIKE '%.gif')`;
+
+    let query: string;
+    let params: any[];
+
+    if (q && q.trim().length > 0) {
+        query = `
+          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content
+          FROM filesystem_nodes
+          WHERE is_directory = false AND ${imageFilter} AND name ILIKE '%' || $1 || '%'
+          ORDER BY name ASC
+          LIMIT $2;
+        `;
+        params = [q.trim(), limitNum];
+    } else {
+        query = `
+          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content
+          FROM filesystem_nodes
+          WHERE is_directory = false AND ${imageFilter}
+          ORDER BY name ASC
+          LIMIT $1;
+        `;
+        params = [limitNum];
+    }
+
+    const { rows } = await pool.query(query, params);
+    const duration = (performance.now() - start).toFixed(2);
+
+    return {
+        took_ms: `${duration}ms`,
+        query: q || '',
+        count: rows.length,
+        nodes: rows,
+    };
+});
+
 const startServer = async () => {
     try {
         await redis.connect();

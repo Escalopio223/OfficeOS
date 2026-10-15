@@ -32,7 +32,7 @@ export const useDesktopStore = defineStore('desktop', () => {
     }
 
     // Calcula una celda libre en la cuadrícula si un nodo se creó desde Oxplorer sin coordenadas
-    function findFreeGridSlot(existingItems: DesktopItem[], startX = 24, startY = 120): { x: number; y: number } {
+    function findFreeGridSlot(existingItems: DesktopItem[], startX = 120, startY = 24): { x: number; y: number } {
         const iconW = 96;
         const iconH = 100;
         const maxRows = Math.max(3, Math.floor(((typeof window !== 'undefined' ? window.innerHeight : 800) - 100) / iconH));
@@ -44,7 +44,10 @@ export const useDesktopStore = defineStore('desktop', () => {
             const candidateX = startX + col * iconW;
             const candidateY = startY + row * iconH;
 
-            const occupied = existingItems.some((item) => {
+            // Evitar solapamiento con la columna de apps del sistema (x < 100 y y < 420)
+            const isSystemAppSlot = candidateX < 100 && candidateY < 420;
+
+            const occupied = isSystemAppSlot || existingItems.some((item) => {
                 return (
                     Math.abs((item.x ?? 0) - candidateX) < 70 &&
                     Math.abs((item.y ?? 0) - candidateY) < 70
@@ -123,6 +126,37 @@ export const useDesktopStore = defineStore('desktop', () => {
                     pos_x: x,
                     pos_y: y,
                     mime_type: 'text/plain',
+                }),
+            });
+            if (!res.ok) return null;
+            const node: FileNode = await res.json();
+            const newItem = toDesktopItem(node, x, y);
+            items.value.push(newItem);
+            notifyFilesystemChanged();
+            return newItem;
+        } catch {
+            return null;
+        }
+    }
+
+    async function createSheet(
+        name = 'Nuevo Documento.csv',
+        content = 'id,producto,precio,stock\n1,Teclado Mecánico,79.99,15\n2,Ratón Inalámbrico,39.99,28',
+        x = 120,
+        y = 120
+    ): Promise<DesktopItem | null> {
+        try {
+            const res = await fetch('/api/nodes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name,
+                    is_directory: false,
+                    content,
+                    parentPath: 'root.desktop',
+                    pos_x: x,
+                    pos_y: y,
+                    mime_type: 'text/csv',
                 }),
             });
             if (!res.ok) return null;
@@ -263,6 +297,7 @@ export const useDesktopStore = defineStore('desktop', () => {
         loading,
         fetchDesktopItems,
         createNote,
+        createSheet,
         createFolder,
         renameItem,
         deleteItem,

@@ -65,17 +65,18 @@ function handleItemDoubleClick(item: any) {
     winStore.openWindow('osheets', {
       name: item.name,
       content: csvContent,
+      fileId: item.id,
     });
     return;
   }
 
-  // 2. Archivos de imagen (.JPG, .PNG) -> Opics
-  if (ext === 'JPG' || ext === 'PNG') {
+  // 2. Archivos de imagen (.JPG, .PNG, .JPEG, .WEBP, .SVG) -> Opics
+  if (ext === 'JPG' || ext === 'PNG' || ext === 'JPEG' || ext === 'WEBP' || ext === 'SVG') {
     const seed = encodeURIComponent(item.name);
     winStore.openWindow('opics', {
       name: item.name,
-      url: `https://picsum.photos/seed/${seed}/900/600`,
-      meta: `${formatBytes(item.size_bytes)} • 900x600px • ${ext}`,
+      url: `https://picsum.photos/seed/${seed}/1000/700`,
+      meta: `${formatBytes(item.size_bytes)} • ${ext}`,
     });
     return;
   }
@@ -120,10 +121,10 @@ function handleItemDoubleClick(item: any) {
 const showNameModal = ref(false);
 const modalTitle = ref('');
 const modalInput = ref('');
-const modalType = ref<'folder' | 'file' | 'note'>('folder');
+const modalType = ref<'folder' | 'file' | 'note' | 'sheet'>('folder');
 const modalInputRef = ref<HTMLInputElement | null>(null);
 
-function openCreateModal(type: 'folder' | 'file' | 'note') {
+function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet') {
   closeAllMenus();
   modalType.value = type;
   if (type === 'folder') {
@@ -132,6 +133,9 @@ function openCreateModal(type: 'folder' | 'file' | 'note') {
   } else if (type === 'note') {
     modalTitle.value = 'Nueva Nota (Onotes)';
     modalInput.value = 'Nueva Nota.txt';
+  } else if (type === 'sheet') {
+    modalTitle.value = 'Nueva Hoja de Cálculo (Osheets)';
+    modalInput.value = 'Nueva Hoja.csv';
   } else {
     modalTitle.value = 'Nuevo Archivo';
     modalInput.value = 'Nuevo Documento.txt';
@@ -171,6 +175,26 @@ async function confirmCreateModal() {
     });
     if (node) {
       winStore.openWindow('onotes', { noteId: node.id });
+    }
+  } else if (modalType.value === 'sheet') {
+    let sheetName = name;
+    if (!sheetName.toLowerCase().endsWith('.csv')) {
+      sheetName += '.csv';
+    }
+    const defaultCsv = 'id,producto,precio,stock\n1,Teclado Mecánico,79.99,15\n2,Ratón Inalámbrico,39.99,28';
+    const node = await fs.createNode({
+      name: sheetName,
+      is_directory: false,
+      content: defaultCsv,
+      parentId: fs.currentFolder?.id,
+      parentPath: fs.currentFolder?.path,
+    });
+    if (node) {
+      winStore.openWindow('osheets', {
+        name: node.name,
+        content: node.content,
+        fileId: node.id,
+      });
     }
   } else {
     await fs.createNode({
@@ -274,6 +298,9 @@ async function handleDeleteSelectedItem() {
   if (winStore.windows['onotes']?.data?.noteId === item.id) {
     winStore.closeWindow('onotes');
   }
+  if (winStore.windows['osheets']?.data?.fileId === item.id) {
+    winStore.closeWindow('osheets');
+  }
 
   await fs.deleteNode(item.id);
 }
@@ -286,6 +313,16 @@ function handleCreateFolderFromMenu() {
 function handleCreateNoteFromMenu() {
   closeAllMenus();
   openCreateModal('note');
+}
+
+function handleCreateSheetFromMenu() {
+  closeAllMenus();
+  openCreateModal('sheet');
+}
+
+function handleOpenOpicsFromMenu() {
+  closeAllMenus();
+  winStore.openWindow('opics', { mode: 'gallery' });
 }
 
 // Reaccionar a la apertura con ruta específica desde el escritorio o accesos directos
@@ -525,6 +562,12 @@ onMounted(() => {
       </button>
       <button class="context-item" @click="handleCreateNoteFromMenu">
         📝 Nueva Nota (Onotes)
+      </button>
+      <button class="context-item" @click="handleCreateSheetFromMenu">
+        📊 Nueva Hoja de Cálculo (Osheets)
+      </button>
+      <button class="context-item" @click="handleOpenOpicsFromMenu">
+        🖼️ Galería de Fotos (Opics)
       </button>
     </div>
 

@@ -1,46 +1,239 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { useWindowStore } from '@/stores/windowStore';
+import { useDesktopStore } from '@/stores/desktopStore';
+import { notifyFilesystemChanged } from '@/stores/filesystem';
 import { useWindowBounds } from '@/composables/useWindowBounds';
 import osheetsSvg from '@/assets/osheets.svg';
 
 const winStore = useWindowStore();
+const desktopStore = useDesktopStore();
 const winState = winStore.windows['osheets'];
-const { x, y, width, height, startDrag, startResize } = useWindowBounds(160, 80, 740, 480);
+const { x, y, width, height, startDrag, startResize } = useWindowBounds(160, 80, 820, 520);
 
+const currentFileId = ref<string | null>(null);
+const fileName = ref('Nuevo Documento.csv');
+const rawCsv = ref('');
+const isSaved = ref(true);
 const filterQuery = ref('');
+const activeView = ref<'grid' | 'raw'>('grid');
+const errorMessage = ref('');
+const successMessage = ref('');
 
-const fileName = computed(() => winState.data?.name || 'datos.csv');
-const rawCsv = computed(() => winState.data?.content || '');
+const headers = ref<string[]>(['id', 'nombre', 'categoria', 'precio']);
+const rows = ref<string[][]>([
+  ['1', 'Portátil Pro', 'Electrónica', '1199.99'],
+  ['2', 'Teclado Mecánico', 'Accesorios', '89.50'],
+  ['3', 'Monitor UltraWide', 'Pantallas', '450.00'],
+  ['4', 'Ratón Óptico', 'Accesorios', '29.90'],
+]);
+
+function parseCsvContent(content: string) {
+  const lines = content.trim().split('\n').filter(Boolean);
+  const firstLine = lines[0];
+  if (!firstLine || lines.length === 0) {
+    headers.value = ['columna_1', 'columna_2', 'columna_3'];
+    rows.value = [['', '', '']];
+    return;
+  }
+
+  headers.value = firstLine.split(',').map((h) => h.replace(/^"|"$/g, '').trim());
+  rows.value = lines.slice(1).map((line) =>
+    line.split(',').map((cell) => cell.replace(/^"|"$/g, '').trim())
+  );
+}
+
+function syncRawFromGrid() {
+  const headerLine = headers.value.map((h) => (h.includes(',') ? `"${h}"` : h)).join(',');
+  const rowLines = rows.value.map((r) =>
+    r.map((c) => (c.includes(',') ? `"${c}"` : c)).join(',')
+  );
+  rawCsv.value = [headerLine, ...rowLines].join('\n');
+  isSaved.value = false;
+}
 
 watch(
   () => winState.data,
-  () => {
-    if (winState) {
+  (newData) => {
+    errorMessage.value = '';
+    successMessage.value = '';
+
+    if (newData) {
+      if (newData.fileId) {
+        currentFileId.value = newData.fileId;
+      } else {
+        currentFileId.value = null;
+      }
+
+      fileName.value = newData.name || 'Nuevo Documento.csv';
+
+      if (newData.content !== undefined && newData.content !== null) {
+        rawCsv.value = newData.content;
+        parseCsvContent(newData.content);
+      } else if (newData.isNew) {
+        createNewSheet();
+        return;
+      }
+      isSaved.value = true;
       winStore.windows['osheets'].title = fileName.value;
+      return;
     }
+
+    createNewSheet();
   },
   { immediate: true }
 );
 
-const parsedTable = computed(() => {
-  const lines = rawCsv.value.trim().split('\n').filter(Boolean);
-  if (lines.length === 0) return { headers: [], rows: [] };
+function createNewSheet() {
+  currentFileId.value = null;
+  winStore.windows['osheets'].data = null;
+  fileName.value = 'Nuevo Documento.csv';
+  headers.value = ['id', 'producto', 'categoria', 'precio', 'stock'];
+  rows.value = [
+    ['1', 'Teclado Mecánico', 'Periféricos', '79.99', '15'],
+    ['2', 'Ratón Inalámbrico', 'Periféricos', '39.99', '28'],
+    ['3', 'Monitor 4K', 'Monitores', '299.00', '8'],
+    ['4', 'Auriculares Pro', 'Audio', '119.50', '20'],
+  ];
+  syncRawFromGrid();
+  isSaved.value = true;
+  errorMessage.value = '';
+  winStore.windows['osheets'].title = fileName.value;
+}
 
-  const headers = lines[0].split(',').map((h: string) => h.replace(/^"|"$/g, '').trim());
-  const rows = lines.slice(1).map((line: string) =>
-    line.split(',').map((cell: string) => cell.replace(/^"|"$/g, '').trim())
-  );
+function addRow() {
+  rows.value.push(new Array(headers.value.length).fill(''));
+  syncRawFromGrid();
+}
 
-  return { headers, rows };
-});
+function removeRow(idx: number) {
+  if (rows.value.length <= 1) {
+    rows.value = [new Array(headers.value.length).fill('')];
+  } else {
+    rows.value.splice(idx, 1);
+  }
+  syncRawFromGrid();
+}
 
-const filteredRows = computed(() => {
-  if (!filterQuery.value.trim()) return parsedTable.value.rows;
+function addColumn() {
+  const newColName = `col_${headers.value.length + 1}`;
+  headers.value.push(newColName);
+  for (const row of rows.value) {
+    row.push('');
+  }
+  syncRawFromGrid();
+}
+
+function removeColumn(cIdx: number) {
+  if (headers.value.length <= 1) return;
+  headers.value.splice(cIdx, 1);
+  for (const row of rows.value) {
+    row.splice(cIdx, 1);
+  }
+  syncRawFromGrid();
+}
+
+function onCellInput(rIdx: number, cIdx: number, event: Event) {
+  const target = event.target as HTMLInputElement;
+  const targetRow = rows.value[rIdx];
+  if (targetRow) {
+    targetRow[cIdx] = target.value;
+    syncRawFromGrid();
+  }
+}
+
+function onHeaderInput(cIdx: number, event: Event) {
+  const target = event.target as HTMLInputElement;
+  headers.value[cIdx] = target.value;
+  syncRawFromGrid();
+}
+
+function onRawInput() {
+  isSaved.value = false;
+  parseCsvContent(rawCsv.value);
+}
+
+function setSuccessFeedback(msg: string) {
+  successMessage.value = msg;
+  setTimeout(() => {
+    if (successMessage.value === msg) {
+      successMessage.value = '';
+    }
+  }, 3500);
+}
+
+async function saveSheet() {
+  errorMessage.value = '';
+  let cleanName = fileName.value.trim();
+
+  if (!cleanName) {
+    errorMessage.value = 'El nombre del archivo no puede estar vacío.';
+    return;
+  }
+
+  if (!cleanName.toLowerCase().endsWith('.csv')) {
+    cleanName += '.csv';
+    fileName.value = cleanName;
+  }
+
+  if (activeView.value === 'raw') {
+    parseCsvContent(rawCsv.value);
+  } else {
+    syncRawFromGrid();
+  }
+
+  try {
+    if (currentFileId.value) {
+      const res = await fetch(`/api/nodes/${currentFileId.value}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: cleanName,
+          content: rawCsv.value,
+        }),
+      });
+      if (!res.ok) throw new Error('Error al actualizar');
+      desktopStore.updateNoteContent(currentFileId.value, rawCsv.value);
+      desktopStore.renameItem(currentFileId.value, cleanName);
+      notifyFilesystemChanged();
+      isSaved.value = true;
+      winStore.windows['osheets'].title = cleanName;
+      setSuccessFeedback('Hoja guardada correctamente');
+    } else {
+      const res = await fetch('/api/nodes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: cleanName,
+          content: rawCsv.value,
+          parentPath: 'root.desktop',
+          is_directory: false,
+          mime_type: 'text/csv',
+        }),
+      });
+      if (!res.ok) throw new Error('Error al crear archivo');
+      const node = await res.json();
+      currentFileId.value = node.id;
+      winStore.windows['osheets'].data = { name: cleanName, content: rawCsv.value, fileId: node.id };
+      winStore.windows['osheets'].title = cleanName;
+      isSaved.value = true;
+      await desktopStore.fetchDesktopItems();
+      notifyFilesystemChanged();
+      setSuccessFeedback('Hoja creada y guardada en Escritorio');
+    }
+  } catch {
+    errorMessage.value = 'Ocurrió un error al guardar la hoja de cálculo.';
+  }
+}
+
+const filteredRowsWithIndex = computed(() => {
+  if (!filterQuery.value.trim()) {
+    return rows.value.map((row, idx) => ({ row, idx }));
+  }
   const q = filterQuery.value.toLowerCase();
-  return parsedTable.value.rows.filter((row: string[]) =>
-    row.some((cell) => cell.toLowerCase().includes(q))
-  );
+  return rows.value
+    .map((row, idx) => ({ row, idx }))
+    .filter(({ row }) => row.some((cell) => cell.toLowerCase().includes(q)));
 });
 
 function handleDoubleClickHeader(e: MouseEvent) {
@@ -85,46 +278,143 @@ function handleDoubleClickHeader(e: MouseEvent) {
     <header class="window-header" @mousedown="startDrag($event, winState.isMaximized)" @dblclick="handleDoubleClickHeader">
       <div class="window-title">
         <img :src="osheetsSvg" alt="Osheets" class="sheets-icon" />
-        <span>{{ fileName }} — Osheets</span>
+        <span>{{ fileName }} {{ isSaved ? '' : '*' }} — Osheets</span>
       </div>
 
       <div class="win-controls" @mousedown.stop @dblclick.stop>
-        <button class="win-btn" @click="winStore.toggleMinimize('osheets')">—</button>
-        <button class="win-btn" @click="winStore.toggleMaximize('osheets')">
+        <button class="win-btn" title="Minimizar" @click="winStore.toggleMinimize('osheets')">—</button>
+        <button class="win-btn" title="Maximizar" @click="winStore.toggleMaximize('osheets')">
           {{ winState.isMaximized ? '❐' : '□' }}
         </button>
-        <button class="win-btn close" @click="winStore.closeWindow('osheets')">✕</button>
+        <button class="win-btn close" title="Cerrar" @click="winStore.closeWindow('osheets')">✕</button>
       </div>
     </header>
 
-    <!-- Barra de filtro CSV -->
+    <!-- Barra de acciones -->
     <div class="sheets-toolbar">
-      <span class="badge-csv">CSV PARSER</span>
+      <div class="toolbar-left">
+        <button class="sheet-btn" title="Crear nuevo CSV" @click="createNewSheet">
+          📄 Nuevo CSV
+        </button>
+        <button class="sheet-btn primary" title="Guardar hoja" @click="saveSheet">
+          💾 Guardar
+        </button>
+
+        <div class="filename-box">
+          <span class="file-label">Archivo:</span>
+          <input
+            v-model="fileName"
+            type="text"
+            class="filename-input"
+            placeholder="datos.csv"
+            @input="isSaved = false; errorMessage = ''"
+          />
+        </div>
+
+        <div class="table-tools" v-if="activeView === 'grid'">
+          <button class="sheet-btn sub" title="Añadir nueva fila" @click="addRow">+ Fila</button>
+          <button class="sheet-btn sub" title="Añadir nueva columna" @click="addColumn">+ Columna</button>
+        </div>
+      </div>
+
+      <div class="toolbar-right">
+        <!-- Selector de Vista -->
+        <div class="view-tabs">
+          <button
+            class="tab-btn"
+            :class="{ active: activeView === 'grid' }"
+            @click="activeView = 'grid'"
+          >
+            📊 Cuadrícula
+          </button>
+          <button
+            class="tab-btn"
+            :class="{ active: activeView === 'raw' }"
+            @click="activeView = 'raw'"
+          >
+            📝 Modo Texto
+          </button>
+        </div>
+
+        <span v-if="successMessage" class="status-badge success">✓ {{ successMessage }}</span>
+        <span v-else class="status-badge" :class="{ dirty: !isSaved }">
+          {{ isSaved ? (currentFileId ? 'Guardado' : 'Borrador nuevo') : 'Cambios sin guardar' }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Barra de filtro y métricas -->
+    <div class="sheets-filterbar" v-if="activeView === 'grid'">
+      <span class="badge-csv">CSV EDITOR</span>
       <input
         v-model="filterQuery"
         type="text"
         class="filter-input"
         placeholder="Filtrar filas en tiempo real..."
       />
-      <span class="row-count">{{ filteredRows.length }} filas</span>
+      <span class="row-count">{{ filteredRowsWithIndex.length }} de {{ rows.length }} filas</span>
     </div>
 
-    <!-- Tabla de Datos -->
-    <div class="table-container">
+    <!-- Banner de error -->
+    <div v-if="errorMessage" class="error-banner">
+      <span>⚠️ {{ errorMessage }}</span>
+      <button class="close-alert" @click="errorMessage = ''">✕</button>
+    </div>
+
+    <!-- Vista de Cuadrícula Editable -->
+    <div v-if="activeView === 'grid'" class="table-container">
       <table class="csv-table">
         <thead>
           <tr>
             <th class="row-index">#</th>
-            <th v-for="(col, idx) in parsedTable.headers" :key="idx">{{ col }}</th>
+            <th v-for="(col, cIdx) in headers" :key="cIdx" class="col-header-th">
+              <div class="col-header-box">
+                <input
+                  :value="col"
+                  class="col-header-input"
+                  @input="onHeaderInput(cIdx, $event)"
+                  title="Editar nombre de columna"
+                />
+                <button
+                  v-if="headers.length > 1"
+                  class="del-col-btn"
+                  title="Eliminar columna"
+                  @click="removeColumn(cIdx)"
+                >
+                  ✕
+                </button>
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(row, rIdx) in filteredRows" :key="rIdx">
-            <td class="row-index">{{ Number(rIdx) + 1 }}</td>
-            <td v-for="(cell, cIdx) in row" :key="cIdx">{{ cell }}</td>
+          <tr v-for="item in filteredRowsWithIndex" :key="item.idx">
+            <td class="row-index">
+              <div class="row-index-box">
+                <span>{{ item.idx + 1 }}</span>
+                <button class="del-row-btn" title="Eliminar fila" @click="removeRow(item.idx)">✕</button>
+              </div>
+            </td>
+            <td v-for="(_, cIdx) in headers" :key="cIdx" class="cell-td">
+              <input
+                :value="item.row[cIdx] || ''"
+                class="cell-input"
+                @input="onCellInput(item.idx, cIdx, $event)"
+              />
+            </td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Vista de Texto CSV Crudo -->
+    <div v-else class="raw-container">
+      <textarea
+        v-model="rawCsv"
+        class="raw-editor"
+        placeholder="Introduce datos en formato CSV separados por comas..."
+        @input="onRawInput"
+      ></textarea>
     </div>
   </div>
 </template>
@@ -132,11 +422,11 @@ function handleDoubleClickHeader(e: MouseEvent) {
 <style scoped>
 .osheets-window {
   position: absolute;
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(15, 23, 42, 0.94);
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(52, 168, 83, 0.3);
+  border: 1px solid rgba(52, 168, 83, 0.35);
   border-radius: 10px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -171,6 +461,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
   padding: 0 12px;
   cursor: grab;
 }
+.window-header:active { cursor: grabbing; }
 
 .window-title {
   display: flex;
@@ -198,9 +489,110 @@ function handleDoubleClickHeader(e: MouseEvent) {
 .sheets-toolbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  padding: 8px 14px;
-  background: rgba(0, 0, 0, 0.25);
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sheet-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #f8fafc;
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+.sheet-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.sheet-btn.primary {
+  background: rgba(52, 168, 83, 0.25);
+  border-color: rgba(52, 168, 83, 0.5);
+  color: #86efac;
+}
+.sheet-btn.primary:hover { background: rgba(52, 168, 83, 0.4); color: #fff; }
+.sheet-btn.sub {
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.filename-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+.file-label { font-size: 11px; color: #94a3b8; }
+.filename-input {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: monospace;
+  outline: none;
+  min-width: 140px;
+}
+.filename-input:focus { border-color: #4ade80; }
+
+.table-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.view-tabs {
+  display: flex;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 5px;
+  padding: 2px;
+}
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tab-btn.active {
+  background: rgba(52, 168, 83, 0.35);
+  color: #86efac;
+  font-weight: 600;
+}
+
+.status-badge { font-size: 11px; color: #4ade80; }
+.status-badge.dirty { color: #facc15; }
+.status-badge.success { color: #38bdf8; font-weight: 500; }
+
+.sheets-filterbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.2);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -218,15 +610,26 @@ function handleDoubleClickHeader(e: MouseEvent) {
   flex: 1;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  padding: 5px 10px;
+  border-radius: 5px;
+  padding: 4px 10px;
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
   outline: none;
 }
 .filter-input:focus { border-color: #4ade80; }
+.row-count { font-size: 11px; color: #94a3b8; font-family: monospace; }
 
-.row-count { font-size: 12px; color: #94a3b8; font-family: monospace; }
+.error-banner {
+  background: rgba(239, 68, 68, 0.2);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  padding: 5px 12px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.close-alert { background: transparent; border: none; color: #fca5a5; cursor: pointer; }
 
 .table-container {
   flex: 1;
@@ -236,38 +639,128 @@ function handleDoubleClickHeader(e: MouseEvent) {
 .csv-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
   color: #e2e8f0;
 }
 
-.csv-table th {
+.col-header-th {
   position: sticky;
   top: 0;
   background: #1e293b;
   color: #4ade80;
   font-weight: 600;
-  text-align: left;
-  padding: 8px 12px;
+  padding: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  min-width: 120px;
+  z-index: 10;
 }
 
-.csv-table td {
-  padding: 7px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+.col-header-box {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  gap: 4px;
+}
+
+.col-header-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #86efac;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
   font-family: monospace;
 }
-
-.csv-table tr:hover td {
-  background: rgba(255, 255, 255, 0.04);
+.col-header-input:focus {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
 }
+
+.del-col-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px;
+  border-radius: 2px;
+}
+.del-col-btn:hover { color: #f87171; }
 
 .row-index {
-  width: 42px;
-  text-align: center !important;
-  color: #64748b !important;
-  background: rgba(15, 23, 42, 0.6);
+  width: 44px;
+  min-width: 44px;
+  background: rgba(15, 23, 42, 0.7);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
   user-select: none;
+  padding: 0;
 }
+
+.row-index-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  color: #64748b;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.del-row-btn {
+  background: transparent;
+  border: none;
+  color: #475569;
+  cursor: pointer;
+  font-size: 9px;
+  padding: 1px;
+}
+.del-row-btn:hover { color: #f87171; }
+
+.cell-td {
+  padding: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cell-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  color: #f1f5f9;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: monospace;
+  outline: none;
+}
+.cell-input:focus {
+  background: rgba(52, 168, 83, 0.12);
+  box-shadow: inset 0 0 0 1px #4ade80;
+}
+
+.raw-container {
+  flex: 1;
+  display: flex;
+  padding: 8px;
+}
+
+.raw-editor {
+  flex: 1;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #f1f5f9;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 12px;
+  resize: none;
+  outline: none;
+  user-select: text;
+}
+.raw-editor:focus { border-color: #4ade80; }
 </style>

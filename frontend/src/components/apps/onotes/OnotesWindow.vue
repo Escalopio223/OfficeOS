@@ -11,19 +11,41 @@ const desktopStore = useDesktopStore();
 const fs = useFileSystemStore();
 
 const winState = winStore.windows['onotes'];
-const { x, y, width, height, startDrag, startResize } = useWindowBounds(140, 70, 680, 460);
+const { x, y, width, height, startDrag, startResize } = useWindowBounds(140, 70, 700, 480);
 
-const activeNoteId = computed(() => winState.data?.noteId || null);
-const isVirtualPreview = computed(() => !!winState.data?.virtualFile && !activeNoteId.value);
+const currentNoteId = ref<string | null>(null);
+const isVirtualPreview = computed(() => !!winState.data?.virtualFile && !currentNoteId.value);
 
-const noteName = ref('Sin título.txt');
+const noteName = ref('Nueva Nota.txt');
 const textContent = ref('');
 const isSaved = ref(true);
+const errorMessage = ref('');
+const successMessage = ref('');
+
+// Extensiones de texto permitidas obligatoriamente
+const ALLOWED_TEXT_EXTENSIONS = [
+  'txt', 'json', 'js', 'ts', 'jsx', 'tsx', 'html', 'htm', 'css', 'scss',
+  'md', 'markdown', 'log', 'sql', 'xml', 'csv', 'yml', 'yaml', 'env', 'sh', 'bash', 'py'
+];
+
+function getExtension(name: string): string {
+  const parts = name.trim().split('.');
+  return parts.length > 1 ? parts.pop()?.toLowerCase() || '' : '';
+}
+
+function isValidTextFile(name: string): boolean {
+  const ext = getExtension(name);
+  return ext !== '' && ALLOWED_TEXT_EXTENSIONS.includes(ext);
+}
 
 watch(
   () => winState.data,
   (newData) => {
+    errorMessage.value = '';
+    successMessage.value = '';
+
     if (newData?.noteId) {
+      currentNoteId.value = newData.noteId;
       const desktopItem = desktopStore.items.find((i) => i.id === newData.noteId);
       if (desktopItem) {
         noteName.value = desktopItem.name;
@@ -40,15 +62,10 @@ watch(
         winStore.windows['onotes'].title = fsItem.name;
         return;
       }
-      if (newData?.virtualFile) {
-        noteName.value = newData.virtualFile.name;
-        textContent.value = newData.virtualFile.content;
-        isSaved.value = true;
-        winStore.windows['onotes'].title = newData.virtualFile.name;
-        return;
-      }
     }
+
     if (newData?.virtualFile) {
+      currentNoteId.value = null;
       noteName.value = newData.virtualFile.name;
       textContent.value = newData.virtualFile.content;
       isSaved.value = true;
@@ -56,6 +73,7 @@ watch(
       return;
     }
 
+    currentNoteId.value = null;
     noteName.value = 'Nueva Nota.txt';
     textContent.value = '';
     isSaved.value = true;
@@ -70,18 +88,87 @@ function onInput() {
   }
 }
 
+function createNewNote() {
+  currentNoteId.value = null;
+  winStore.windows['onotes'].data = null;
+  noteName.value = 'Nueva Nota.txt';
+  textContent.value = '';
+  isSaved.value = true;
+  errorMessage.value = '';
+  successMessage.value = '';
+  winStore.windows['onotes'].title = 'Nueva Nota.txt';
+}
+
+function setSuccessFeedback(msg: string) {
+  successMessage.value = msg;
+  setTimeout(() => {
+    if (successMessage.value === msg) {
+      successMessage.value = '';
+    }
+  }, 3500);
+}
+
 async function saveFile() {
-  if (activeNoteId.value) {
-    try {
-      await fetch(`/api/nodes/${activeNoteId.value}`, {
+  errorMessage.value = '';
+  const trimmedName = noteName.value.trim();
+
+  if (!trimmedName) {
+    errorMessage.value = 'El nombre del archivo no puede estar vacío.';
+    return;
+  }
+
+  if (!isValidTextFile(trimmedName)) {
+    const detectedExt = getExtension(trimmedName);
+    errorMessage.value = detectedExt
+      ? `Formato ".${detectedExt}" no permitido. Onotes solo permite archivos de texto (.txt, .json, .js, .ts, .md, .html, .css, .log, .sql, etc.)`
+      : 'Formato inválido. Debe incluir una extensión de texto (ejemplo: .txt, .json, .js, .md).';
+    return;
+  }
+
+  try {
+    if (currentNoteId.value) {
+      // Modificar archivo existente
+      const res = await fetch(`/api/nodes/${currentNoteId.value}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: textContent.value }),
+        body: JSON.stringify({
+          name: trimmedName,
+          content: textContent.value
+        }),
       });
-      desktopStore.updateNoteContent(activeNoteId.value, textContent.value);
+      if (!res.ok) throw new Error('Error al actualizar nota');
+
+      desktopStore.updateNoteContent(currentNoteId.value, textContent.value);
+      desktopStore.renameItem(currentNoteId.value, trimmedName);
       notifyFilesystemChanged();
       isSaved.value = true;
-    } catch {}
+      winStore.windows['onotes'].title = trimmedName;
+      setSuccessFeedback('Guardado correctamente');
+    } else {
+      // Crear archivo de texto nuevo en el escritorio (root.desktop)
+      const res = await fetch('/api/nodes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: trimmedName,
+          is_directory: false,
+          content: textContent.value,
+          parentPath: 'root.desktop',
+          mime_type: 'text/plain',
+        }),
+      });
+      if (!res.ok) throw new Error('Error al crear archivo');
+      const newNode = await res.json();
+      currentNoteId.value = newNode.id;
+      winStore.windows['onotes'].data = { noteId: newNode.id };
+      winStore.windows['onotes'].title = trimmedName;
+      isSaved.value = true;
+      await desktopStore.fetchDesktopItems();
+      notifyFilesystemChanged();
+      setSuccessFeedback('Archivo creado y guardado en Escritorio');
+    }
+  } catch (e) {
+    errorMessage.value = 'Ocurrió un error al intentar guardar el archivo.';
   }
 }
 
@@ -139,16 +226,47 @@ function handleDoubleClickHeader(e: MouseEvent) {
       </div>
     </header>
 
-    <!-- Barra de acciones rápidas -->
+    <!-- Barra de acciones y nombre de archivo -->
     <div class="editor-toolbar">
-      <template v-if="!isVirtualPreview">
-        <button class="toolbar-btn" @click="saveFile">
+      <div class="toolbar-left">
+        <button class="toolbar-btn" title="Crear nueva nota en blanco" @click="createNewNote">
+          📄 Nuevo
+        </button>
+        <button v-if="!isVirtualPreview" class="toolbar-btn primary" title="Guardar cambios" @click="saveFile">
           💾 Guardar
         </button>
-        <span class="status-indicator" :class="{ 'is-dirty': !isSaved }">
-          {{ isSaved ? 'Guardado en escritorio' : 'Cambios sin guardar' }}
+
+        <div v-if="!isVirtualPreview" class="filename-container">
+          <span class="file-label">Archivo:</span>
+          <input
+            v-model="noteName"
+            type="text"
+            class="filename-input"
+            :class="{ 'is-invalid': !isValidTextFile(noteName) }"
+            placeholder="nota.txt"
+            @input="isSaved = false; errorMessage = ''"
+          />
+        </div>
+      </div>
+
+      <div class="toolbar-right">
+        <span v-if="successMessage" class="status-indicator success">✓ {{ successMessage }}</span>
+        <span v-else-if="!isVirtualPreview" class="status-indicator" :class="{ 'is-dirty': !isSaved }">
+          {{ isSaved ? (currentNoteId ? 'Guardado' : 'Borrador nuevo') : 'Cambios sin guardar' }}
         </span>
-      </template>
+        <span v-else class="status-indicator preview-badge">Vista previa</span>
+      </div>
+    </div>
+
+    <!-- Banner de error si la extensión no es válida -->
+    <div v-if="errorMessage" class="error-banner">
+      <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+      <span>{{ errorMessage }}</span>
+      <button class="close-alert-btn" @click="errorMessage = ''">✕</button>
     </div>
 
     <!-- Área de edición -->
@@ -156,7 +274,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
       v-model="textContent"
       class="editor-area"
       :readonly="isVirtualPreview"
-      placeholder="Escribe aquí tu nota..."
+      placeholder="Escribe aquí tu contenido de texto (.txt, .json, .js, .md)..."
       @input="onInput"
     ></textarea>
   </div>
@@ -165,7 +283,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
 <style scoped>
 .onotes-window {
   position: absolute;
-  background: rgba(18, 24, 38, 0.88);
+  background: rgba(18, 24, 38, 0.92);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
@@ -233,26 +351,113 @@ function handleDoubleClickHeader(e: MouseEvent) {
 .editor-toolbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.35);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .toolbar-btn {
   background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   color: #f8fafc;
   padding: 4px 10px;
-  border-radius: 4px;
+  border-radius: 5px;
   font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
 }
 .toolbar-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.toolbar-btn.primary {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #93c5fd;
+}
+.toolbar-btn.primary:hover { background: rgba(59, 130, 246, 0.4); color: #fff; }
+
+.filename-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+}
+
+.file-label {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.filename-input {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: monospace;
+  outline: none;
+  min-width: 140px;
+  transition: border-color 0.2s;
+}
+.filename-input:focus {
+  border-color: #60a5fa;
+  background: rgba(255, 255, 255, 0.1);
+}
+.filename-input.is-invalid {
+  border-color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+}
 
 .status-indicator { font-size: 11px; color: #4ade80; }
+.status-indicator.success { color: #38bdf8; font-weight: 500; }
 .status-indicator.is-dirty { color: #facc15; }
 .status-indicator.preview-badge { color: #38bdf8; }
+
+.error-banner {
+  background: rgba(239, 68, 68, 0.2);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  padding: 6px 12px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.alert-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke: #f87171;
+}
+.error-banner span {
+  flex: 1;
+}
+.close-alert-btn {
+  background: transparent;
+  border: none;
+  color: #fca5a5;
+  cursor: pointer;
+  font-size: 12px;
+}
 
 .editor-area {
   flex: 1;
