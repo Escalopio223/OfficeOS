@@ -5,6 +5,8 @@ import { useDesktopStore, type DesktopItem } from '@/stores/desktopStore';
 import OxplorerWindow from '@/components/apps/oxplorer/OxplorerWindow.vue';
 import OnotesWindow from '@/components/apps/onotes/OnotesWindow.vue';
 import oxplorerSvg from '@/assets/oxplorer.svg';
+import OsheetsWindow from '@/components/apps/osheets/OsheetsWindow.vue';
+import OphotosWindow from '@/components/apps/ophotos/OphotosWindow.vue';
 
 const winStore = useWindowStore();
 const desktopStore = useDesktopStore();
@@ -391,6 +393,8 @@ function onDropOnFolder(e: DragEvent, folderId: string | null) {
     <!-- Ventanas activas -->
     <OxplorerWindow v-if="winStore.windows['oxplorer'].isOpen" />
     <OnotesWindow v-if="winStore.windows['onotes']?.isOpen" />
+    <OsheetsWindow v-if="winStore.windows['osheets']?.isOpen" />
+    <OphotosWindow v-if="winStore.windows['ophotos']?.isOpen" />
   </main>
 </template>
 
