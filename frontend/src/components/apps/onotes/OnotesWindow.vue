@@ -46,22 +46,39 @@ watch(
 
     if (newData?.noteId) {
       currentNoteId.value = newData.noteId;
+      noteName.value = newData.name || 'Nota.txt';
+      winStore.windows['onotes'].title = noteName.value;
+
       const desktopItem = desktopStore.items.find((i) => i.id === newData.noteId);
-      if (desktopItem) {
-        noteName.value = desktopItem.name;
-        textContent.value = desktopItem.content || '';
-        isSaved.value = true;
-        winStore.windows['onotes'].title = desktopItem.name;
-        return;
-      }
       const fsItem = fs.nodes.find((n) => n.id === newData.noteId);
-      if (fsItem) {
-        noteName.value = fsItem.name;
-        textContent.value = fsItem.content || '';
+      const existing = desktopItem || fsItem;
+
+      if (existing) {
+        noteName.value = existing.name;
+        winStore.windows['onotes'].title = existing.name;
+      }
+
+      const existingContent = desktopItem?.content ?? fsItem?.content ?? newData.content;
+
+      if (existingContent !== undefined && existingContent !== null && existingContent !== '') {
+        textContent.value = existingContent;
         isSaved.value = true;
-        winStore.windows['onotes'].title = fsItem.name;
         return;
       }
+
+      // Cargar desde endpoint raw de archivos (soporta tanto virtuales deterministas como físicos)
+      fetch(`/api/files/${newData.noteId}/raw`)
+        .then((res) => (res.ok ? res.text() : ''))
+        .then((text) => {
+          if (currentNoteId.value === newData.noteId) {
+            textContent.value = text;
+            isSaved.value = true;
+          }
+        })
+        .catch(() => {
+          textContent.value = '';
+        });
+      return;
     }
 
     if (newData?.virtualFile) {

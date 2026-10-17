@@ -1,9 +1,13 @@
 export interface FileNode {
     id: string
+    user_id?: string
     name: string
+    type?: 'folder' | 'file' | 'note' | 'oxplorer-node' | string
     is_directory: boolean
     size_bytes: number
     mime_type: string | null
+    storage_type?: 'FILE' | 'VIRTUAL'
+    storage_path?: string | null
     parent_id: string | null
     path: string
     pos_x?: number | null
@@ -18,7 +22,9 @@ export interface NodesResponse {
     took_ms: string
     source?: string
     count: number
+    total?: number
     page: number
+    totalPages?: number
     currentFolder?: FileNode | null
     nodes: FileNode[]
 }

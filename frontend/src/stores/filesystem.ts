@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { FileNode, NodesResponse, SearchResponse } from '@/types/filesystem'
 
 // Evento global reactivo para sincronización inmediata entre Oxplorer y el Escritorio
@@ -13,9 +13,15 @@ export const useFileSystemStore = defineStore('filesystem', () => {
     const history = ref<FileNode[]>([])
     const nodes = ref<FileNode[]>([])
     const loading = ref<boolean>(false)
+    const loadingMore = ref<boolean>(false)
     const latency = ref<string>('0ms')
     const dataSource = ref<string>('N/A')
+    const page = ref<number>(1)
+    const total = ref<number>(0)
+    const totalPages = ref<number>(1)
     const unlockedFolderIds = ref<Set<string>>(new Set())
+
+    const hasMore = computed(() => page.value < totalPages.value)
 
     function isFolderUnlocked(folderId: string): boolean {
         return unlockedFolderIds.value.has(folderId)
@@ -31,6 +37,23 @@ export const useFileSystemStore = defineStore('filesystem', () => {
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
+    function getFileRawUrl(id: string): string {
+        return `/api/files/${id}/raw`
+    }
+
+    function getFileDownloadUrl(id: string): string {
+        return `/api/files/${id}/download`
+    }
+
+    function downloadFile(node: { id: string; name: string }) {
+        const link = document.createElement('a')
+        link.href = getFileDownloadUrl(node.id)
+        link.setAttribute('download', node.name)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+    }
+
     async function initRoot() {
         loading.value = true
         try {
@@ -42,38 +65,65 @@ export const useFileSystemStore = defineStore('filesystem', () => {
             const first = data.nodes[0]
             if (first) {
                 currentFolder.value = first
-                await fetchFolderContents(first.id)
+                await fetchFolderContents(first.id, 1)
             }
         } finally {
             loading.value = false
         }
     }
 
-    async function fetchFolderContents(parentId: string) {
-        loading.value = true
+    async function fetchFolderContents(parentId: string, targetPage = 1) {
+        if (targetPage === 1) {
+            loading.value = true
+        } else {
+            loadingMore.value = true
+        }
+
         try {
-            const res = await fetch(`/api/nodes?parentId=${parentId}&limit=100`)
+            const res = await fetch(`/api/nodes?parentId=${parentId}&page=${targetPage}&limit=100`)
             const data: NodesResponse = await res.json()
-            nodes.value = data.nodes
+
+            if (targetPage === 1) {
+                nodes.value = data.nodes
+            } else {
+                // Evitar duplicados si se carga más
+                const existingIds = new Set(nodes.value.map((n) => n.id))
+                const newItems = data.nodes.filter((n) => !existingIds.has(n.id))
+                nodes.value.push(...newItems)
+            }
+
+            page.value = data.page || targetPage
+            total.value = data.total || data.count
+            totalPages.value = data.totalPages || 1
             latency.value = data.took_ms
             dataSource.value = data.source || 'postgres'
+
             if (data.currentFolder) {
                 currentFolder.value = data.currentFolder
             }
         } finally {
             loading.value = false
+            loadingMore.value = false
         }
     }
 
-    async function navigateToPath(path: string) {
+    async function loadMoreFolderContents() {
+        if (!currentFolder.value || !hasMore.value || loadingMore.value) return
+        await fetchFolderContents(currentFolder.value.id, page.value + 1)
+    }
+
+    async function navigateToPath(path: string, targetPage = 1) {
         loading.value = true
         try {
-            const res = await fetch(`/api/nodes?parentPath=${encodeURIComponent(path)}&limit=100`)
+            const res = await fetch(`/api/nodes?parentPath=${encodeURIComponent(path)}&page=${targetPage}&limit=100`)
             if (!res.ok) {
                 return false
             }
             const data: NodesResponse = await res.json()
             nodes.value = data.nodes
+            page.value = data.page || targetPage
+            total.value = data.total || data.count
+            totalPages.value = data.totalPages || 1
             latency.value = data.took_ms
             dataSource.value = data.source || 'postgres'
             if (data.currentFolder) {
@@ -89,7 +139,7 @@ export const useFileSystemStore = defineStore('filesystem', () => {
 
     async function refreshCurrentFolder() {
         if (!currentFolder.value) return
-        await fetchFolderContents(currentFolder.value.id)
+        await fetchFolderContents(currentFolder.value.id, 1)
     }
 
     async function openDirectory(folder: FileNode) {
@@ -98,19 +148,20 @@ export const useFileSystemStore = defineStore('filesystem', () => {
             history.value.push(currentFolder.value)
         }
         currentFolder.value = folder
-        await fetchFolderContents(folder.id)
+        await fetchFolderContents(folder.id, 1)
     }
 
     async function goBack() {
         const prev = history.value.pop()
         if (prev) {
             currentFolder.value = prev
-            await fetchFolderContents(prev.id)
+            await fetchFolderContents(prev.id, 1)
         }
     }
 
     async function createNode(params: {
         name: string
+        type?: 'folder' | 'file'
         is_directory?: boolean
         content?: string
         parentId?: string
@@ -118,6 +169,8 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         pos_x?: number | null
         pos_y?: number | null
         password?: string
+        storage_type?: 'FILE' | 'VIRTUAL'
+        storage_path?: string | null
     }): Promise<FileNode | null> {
         try {
             const res = await fetch('/api/nodes', {
@@ -232,7 +285,7 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         if (debounceTimer) clearTimeout(debounceTimer)
 
         if (!query.trim()) {
-            if (currentFolder.value) fetchFolderContents(currentFolder.value.id)
+            if (currentFolder.value) fetchFolderContents(currentFolder.value.id, 1)
             return
         }
 
@@ -336,8 +389,13 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         history,
         nodes,
         loading,
+        loadingMore,
         latency,
         dataSource,
+        page,
+        total,
+        totalPages,
+        hasMore,
         unlockedFolderIds,
         isFolderUnlocked,
         unlockFolder,
@@ -347,6 +405,7 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         removeFolderPassword,
         initRoot,
         fetchFolderContents,
+        loadMoreFolderContents,
         navigateToPath,
         refreshCurrentFolder,
         openDirectory,
@@ -357,5 +416,8 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         renameNode,
         updateContent,
         search,
+        getFileRawUrl,
+        getFileDownloadUrl,
+        downloadFile,
     }
 })

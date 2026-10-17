@@ -67,9 +67,28 @@ watch(
 
       fileName.value = newData.name || 'Nuevo Documento.csv';
 
-      if (newData.content !== undefined && newData.content !== null) {
+      if (newData.content !== undefined && newData.content !== null && newData.content !== '') {
         rawCsv.value = newData.content;
         parseCsvContent(newData.content);
+        isSaved.value = true;
+        winStore.windows['osheets'].title = fileName.value;
+        return;
+      } else if (newData.fileId) {
+        // Cargar desde endpoint raw (soporta CSVs virtuales generados y físicos)
+        fetch(`/api/files/${newData.fileId}/raw`)
+          .then((res) => (res.ok ? res.text() : ''))
+          .then((text) => {
+            if (currentFileId.value === newData.fileId) {
+              rawCsv.value = text;
+              parseCsvContent(text);
+              isSaved.value = true;
+              winStore.windows['osheets'].title = fileName.value;
+            }
+          })
+          .catch(() => {
+            createNewSheet();
+          });
+        return;
       } else if (newData.isNew) {
         createNewSheet();
         return;
@@ -226,6 +245,27 @@ async function saveSheet() {
   }
 }
 
+function downloadCsv() {
+  if (currentFileId.value) {
+    const a = document.createElement('a');
+    a.href = `/api/files/${currentFileId.value}/download`;
+    a.download = fileName.value;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else {
+    const blob = new Blob([rawCsv.value], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName.value;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+}
+
 const filteredRowsWithIndex = computed(() => {
   if (!filterQuery.value.trim()) {
     return rows.value.map((row, idx) => ({ row, idx }));
@@ -298,6 +338,9 @@ function handleDoubleClickHeader(e: MouseEvent) {
         </button>
         <button class="sheet-btn primary" title="Guardar hoja" @click="saveSheet">
           💾 Guardar
+        </button>
+        <button class="sheet-btn" title="Descargar archivo CSV al equipo" @click="downloadCsv">
+          ⬇️ Descargar
         </button>
 
         <div class="filename-box">

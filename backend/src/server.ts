@@ -2,6 +2,14 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
+import path from 'path';
+import fs from 'fs';
+import {
+    generateDeterministicInvoiceCsv,
+    generateDeterministicCode,
+    generateDeterministicPdf,
+    generateDeterministicPaintPng,
+} from './utils/virtualFiles';
 
 const app = Fastify({ logger: false });
 
@@ -51,9 +59,29 @@ function sanitizeLtreeLabel(name: string): string {
     return `${base}_${unique}`;
 }
 
-// 1. Obtener contenidos de un directorio con Cache-Aside (por parentId o por parentPath)
+const NODE_SELECT_COLUMNS = `
+  id,
+  user_id,
+  name,
+  type,
+  is_directory,
+  size_bytes,
+  mime_type,
+  storage_type,
+  storage_path,
+  parent_id,
+  path,
+  pos_x,
+  pos_y,
+  content,
+  (password IS NOT NULL AND password <> '') AS is_protected,
+  created_at,
+  updated_at
+`;
+
+// 1. Obtener contenidos de un directorio con Cache-Aside y Paginación (por parentId o por parentPath)
 app.get('/api/nodes', async (request, reply) => {
-    const { parentId, parentPath, page = 1, limit = 50 } = request.query as {
+    const { parentId, parentPath, page = 1, limit = 100 } = request.query as {
         parentId?: string;
         parentPath?: string;
         page?: number;
@@ -61,7 +89,7 @@ app.get('/api/nodes', async (request, reply) => {
     };
 
     const pageNum = Math.max(1, Number(page));
-    const limitNum = Math.min(100, Math.max(1, Number(limit)));
+    const limitNum = Math.min(200, Math.max(1, Number(limit)));
     const offset = (pageNum - 1) * limitNum;
 
     // Clave única por carpeta y página
@@ -86,10 +114,12 @@ app.get('/api/nodes', async (request, reply) => {
     let currentFolderNode: any = null;
     let query: string;
     let params: any[];
+    let countQuery = '';
+    let countParams: any[] = [];
 
     if (parentPath) {
         const parentRes = await pool.query(
-            'SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> \'\') AS is_protected FROM filesystem_nodes WHERE path = $1::ltree LIMIT 1;',
+            `SELECT ${NODE_SELECT_COLUMNS} FROM filesystem_nodes WHERE path = $1::ltree LIMIT 1;`,
             [parentPath]
         );
         if (parentRes.rows.length === 0) {
@@ -97,32 +127,36 @@ app.get('/api/nodes', async (request, reply) => {
         }
         currentFolderNode = parentRes.rows[0];
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
+          SELECT ${NODE_SELECT_COLUMNS}
           FROM filesystem_nodes
           WHERE parent_id = $1
-          ORDER BY is_directory DESC, name ASC
+          ORDER BY type ASC, name ASC
           LIMIT $2 OFFSET $3;
         `;
         params = [currentFolderNode.id, limitNum, offset];
+        countQuery = `SELECT COUNT(*) AS total FROM filesystem_nodes WHERE parent_id = $1;`;
+        countParams = [currentFolderNode.id];
     } else if (parentId) {
         const parentRes = await pool.query(
-            'SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> \'\') AS is_protected FROM filesystem_nodes WHERE id = $1 LIMIT 1;',
+            `SELECT ${NODE_SELECT_COLUMNS} FROM filesystem_nodes WHERE id = $1 LIMIT 1;`,
             [parentId]
         );
         if (parentRes.rows.length > 0) {
             currentFolderNode = parentRes.rows[0];
         }
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
+          SELECT ${NODE_SELECT_COLUMNS}
           FROM filesystem_nodes
           WHERE parent_id = $1
-          ORDER BY is_directory DESC, name ASC
+          ORDER BY type ASC, name ASC
           LIMIT $2 OFFSET $3;
         `;
         params = [parentId, limitNum, offset];
+        countQuery = `SELECT COUNT(*) AS total FROM filesystem_nodes WHERE parent_id = $1;`;
+        countParams = [parentId];
     } else {
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
+          SELECT ${NODE_SELECT_COLUMNS}
           FROM filesystem_nodes
           WHERE parent_id IS NULL
           LIMIT 1;
@@ -134,13 +168,22 @@ app.get('/api/nodes', async (request, reply) => {
     if (!currentFolderNode && !parentId && !parentPath && rows.length > 0) {
         currentFolderNode = rows[0];
     }
+
+    let total = rows.length;
+    if (countQuery) {
+        const countRes = await pool.query(countQuery, countParams);
+        total = Number(countRes.rows[0]?.total || 0);
+    }
+
     const duration = (performance.now() - start).toFixed(2);
 
     const payload = {
         source: 'postgres',
         took_ms: `${duration}ms`,
         count: rows.length,
+        total,
         page: pageNum,
+        totalPages: Math.max(1, Math.ceil(total / limitNum)),
         currentFolder: currentFolderNode,
         nodes: rows,
     };
@@ -154,6 +197,7 @@ app.get('/api/nodes', async (request, reply) => {
 app.post('/api/nodes', async (request, reply) => {
     const {
         name,
+        type,
         is_directory = false,
         parentPath,
         parentId,
@@ -162,8 +206,11 @@ app.post('/api/nodes', async (request, reply) => {
         content = null,
         mime_type = null,
         password = null,
+        storage_type = 'VIRTUAL',
+        storage_path = null,
     } = request.body as {
         name?: string;
+        type?: 'folder' | 'file';
         is_directory?: boolean;
         parentPath?: string;
         parentId?: string;
@@ -172,6 +219,8 @@ app.post('/api/nodes', async (request, reply) => {
         content?: string | null;
         mime_type?: string | null;
         password?: string | null;
+        storage_type?: 'FILE' | 'VIRTUAL';
+        storage_path?: string | null;
     };
 
     if (!name || !name.trim()) {
@@ -198,7 +247,8 @@ app.post('/api/nodes', async (request, reply) => {
         return reply.status(400).send({ error: 'El nodo padre debe ser una carpeta' });
     }
 
-    const isDir = Boolean(is_directory);
+    const isDir = Boolean(is_directory || type === 'folder');
+    const nodeType: 'folder' | 'file' = isDir ? 'folder' : 'file';
     const label = sanitizeLtreeLabel(name);
     const newPath = `${parentRow.path}.${label}`;
     const contentStr = content ?? (isDir ? null : '');
@@ -212,19 +262,25 @@ app.post('/api/nodes', async (request, reply) => {
         else if (lower.endsWith('.csv')) finalMime = 'text/csv';
         else if (lower.endsWith('.json')) finalMime = 'application/json';
         else if (lower.endsWith('.md')) finalMime = 'text/markdown';
+        else if (lower.endsWith('.js')) finalMime = 'application/javascript';
+        else if (lower.endsWith('.ts')) finalMime = 'application/typescript';
+        else if (lower.endsWith('.pdf')) finalMime = 'application/pdf';
+        else if (lower.endsWith('.png')) finalMime = 'image/png';
+        else if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) finalMime = 'image/jpeg';
+        else if (lower.endsWith('.webp')) finalMime = 'image/webp';
         else finalMime = 'application/octet-stream';
     }
 
     const query = `
       INSERT INTO filesystem_nodes (
-        name, is_directory, parent_id, path, pos_x, pos_y, content, size_bytes, mime_type, password
-      ) VALUES ($1, $2, $3, $4::ltree, $5, $6, $7, $8, $9, $10)
-      RETURNING id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected, created_at, updated_at;
+        name, type, parent_id, path, pos_x, pos_y, content, size_bytes, mime_type, password, storage_type, storage_path
+      ) VALUES ($1, $2, $3, $4::ltree, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING ${NODE_SELECT_COLUMNS};
     `;
 
     const { rows } = await pool.query(query, [
         name.trim(),
-        isDir,
+        nodeType,
         parentRow.id,
         newPath,
         pos_x,
@@ -233,6 +289,8 @@ app.post('/api/nodes', async (request, reply) => {
         sizeBytes,
         finalMime,
         folderPassword,
+        storage_type,
+        storage_path,
     ]);
 
     await invalidateDirCache();
@@ -355,7 +413,7 @@ app.patch('/api/nodes/:id', async (request, reply) => {
                      pos_y = $4,
                      updated_at = NOW()
                  WHERE id = $5
-                 RETURNING id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected, created_at, updated_at;`,
+                 RETURNING ${NODE_SELECT_COLUMNS};`,
                 [targetRow.id, newPath, newPosX, newPosY, existing.id]
             );
 
@@ -390,7 +448,7 @@ app.patch('/api/nodes/:id', async (request, reply) => {
         password = CASE WHEN $8::boolean THEN $9 ELSE password END,
         updated_at = NOW()
       WHERE id = $10
-      RETURNING id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected, created_at, updated_at;
+      RETURNING ${NODE_SELECT_COLUMNS};
     `;
 
     const { rows } = await pool.query(updateQuery, [
@@ -443,10 +501,10 @@ app.get('/api/nodes/search', async (request, reply) => {
     const start = performance.now();
 
     const query = `
-    SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
+    SELECT ${NODE_SELECT_COLUMNS}
     FROM filesystem_nodes
     WHERE name ILIKE '%' || $1 || '%'
-    ORDER BY is_directory DESC, name ASC
+    ORDER BY type ASC, name ASC
     LIMIT $2;
   `;
 
@@ -480,11 +538,11 @@ app.post('/api/nodes/:id/verify-password', async (request, reply) => {
 
 // 7. Obtener imágenes de todo el sistema (excluyendo carpetas protegidas)
 app.get('/api/nodes/images', async (request, reply) => {
-    const { q, limit = 100 } = request.query as { q?: string; limit?: number };
-    const limitNum = Math.min(200, Math.max(1, Number(limit)));
+    const { q, limit = 150 } = request.query as { q?: string; limit?: number };
+    const limitNum = Math.min(250, Math.max(1, Number(limit)));
     const start = performance.now();
 
-    const imageFilter = `(name ILIKE '%.jpg' OR name ILIKE '%.jpeg' OR name ILIKE '%.png' OR name ILIKE '%.webp' OR name ILIKE '%.svg' OR name ILIKE '%.gif')`;
+    const imageFilter = `(mime_type ILIKE 'image/%' OR name ILIKE '%.jpg' OR name ILIKE '%.jpeg' OR name ILIKE '%.png' OR name ILIKE '%.webp')`;
     const secureFolderExclusion = `
       AND NOT EXISTS (
         SELECT 1 FROM filesystem_nodes pf
@@ -500,19 +558,19 @@ app.get('/api/nodes/images', async (request, reply) => {
 
     if (q && q.trim().length > 0) {
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
+          SELECT ${NODE_SELECT_COLUMNS}
           FROM filesystem_nodes
           WHERE is_directory = false AND ${imageFilter} ${secureFolderExclusion} AND name ILIKE '%' || $1 || '%'
-          ORDER BY name ASC
+          ORDER BY (storage_type = 'FILE') DESC, name ASC
           LIMIT $2;
         `;
         params = [q.trim(), limitNum];
     } else {
         query = `
-          SELECT id, name, is_directory, size_bytes, mime_type, parent_id, path, pos_x, pos_y, content, (password IS NOT NULL AND password <> '') AS is_protected
+          SELECT ${NODE_SELECT_COLUMNS}
           FROM filesystem_nodes
           WHERE is_directory = false AND ${imageFilter} ${secureFolderExclusion}
-          ORDER BY name ASC
+          ORDER BY (storage_type = 'FILE') DESC, name ASC
           LIMIT $1;
         `;
         params = [limitNum];
@@ -529,9 +587,154 @@ app.get('/api/nodes/images', async (request, reply) => {
     };
 });
 
+// 8. Servir contenido en crudo de un archivo (GET /api/files/:id/raw)
+app.get('/api/files/:id/raw', async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const res = await pool.query(
+        'SELECT id, name, type, mime_type, storage_type, storage_path, content FROM filesystem_nodes WHERE id = $1',
+        [id]
+    );
+
+    if (res.rows.length === 0) {
+        return reply.status(404).send({ error: 'Archivo no encontrado' });
+    }
+
+    const node = res.rows[0];
+    if (node.type === 'folder') {
+        return reply.status(400).send({ error: 'No se puede previsualizar una carpeta' });
+    }
+
+    // A. Contenido explícito en BD (archivos editados/creados)
+    if (node.content !== null && node.content !== undefined) {
+        return reply.type(node.mime_type || 'text/plain; charset=utf-8').send(node.content);
+    }
+
+    // B. Almacenamiento Físico ('FILE')
+    if (node.storage_type === 'FILE' && node.storage_path) {
+        const fullPath = path.resolve(__dirname, '../storage', node.storage_path);
+        if (fs.existsSync(fullPath)) {
+            const buf = fs.readFileSync(fullPath);
+            return reply.type(node.mime_type || 'application/octet-stream').send(buf);
+        }
+        return reply.status(404).send({ error: 'Archivo físico no hallado en disco' });
+    }
+
+    // C. Almacenamiento Virtual ('VIRTUAL') determinista
+    const lower = node.name.toLowerCase();
+
+    if (node.mime_type === 'text/csv' || lower.endsWith('.csv')) {
+        const csv = generateDeterministicInvoiceCsv(node.id, node.name);
+        return reply.type('text/csv; charset=utf-8').send(csv);
+    }
+
+    if (node.mime_type === 'application/pdf' || lower.endsWith('.pdf')) {
+        const pdfBuf = generateDeterministicPdf(node.id, node.name);
+        return reply.type('application/pdf').send(pdfBuf);
+    }
+
+    if (lower.endsWith('.png')) {
+        const pngBuf = generateDeterministicPaintPng(node.id, node.name);
+        return reply.type('image/png').send(pngBuf);
+    }
+
+    // Código (.js, .ts, .json, .sql, .md) y texto plano
+    const code = generateDeterministicCode(node.id, node.name);
+    return reply.type(node.mime_type || 'text/plain; charset=utf-8').send(code);
+});
+
+// 9. Descargar archivo con Content-Disposition real (GET /api/files/:id/download)
+app.get('/api/files/:id/download', async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const res = await pool.query(
+        'SELECT id, name, type, mime_type, storage_type, storage_path, content FROM filesystem_nodes WHERE id = $1',
+        [id]
+    );
+
+    if (res.rows.length === 0) {
+        return reply.status(404).send({ error: 'Archivo no encontrado' });
+    }
+
+    const node = res.rows[0];
+    if (node.type === 'folder') {
+        return reply.status(400).send({ error: 'No se puede descargar una carpeta directamente' });
+    }
+
+    const encodedName = encodeURIComponent(node.name);
+    reply.header('Content-Disposition', `attachment; filename="${node.name}"; filename*=UTF-8''${encodedName}`);
+
+    // A. Contenido explícito en BD
+    if (node.content !== null && node.content !== undefined) {
+        return reply.type(node.mime_type || 'text/plain; charset=utf-8').send(node.content);
+    }
+
+    // B. Almacenamiento Físico ('FILE')
+    if (node.storage_type === 'FILE' && node.storage_path) {
+        const fullPath = path.resolve(__dirname, '../storage', node.storage_path);
+        if (fs.existsSync(fullPath)) {
+            const buf = fs.readFileSync(fullPath);
+            return reply.type(node.mime_type || 'application/octet-stream').send(buf);
+        }
+        return reply.status(404).send({ error: 'Archivo físico no hallado en disco' });
+    }
+
+    // C. Almacenamiento Virtual ('VIRTUAL')
+    const lower = node.name.toLowerCase();
+
+    if (node.mime_type === 'text/csv' || lower.endsWith('.csv')) {
+        const csv = generateDeterministicInvoiceCsv(node.id, node.name);
+        return reply.type('text/csv; charset=utf-8').send(csv);
+    }
+
+    if (node.mime_type === 'application/pdf' || lower.endsWith('.pdf')) {
+        const pdfBuf = generateDeterministicPdf(node.id, node.name);
+        return reply.type('application/pdf').send(pdfBuf);
+    }
+
+    if (lower.endsWith('.png')) {
+        const pngBuf = generateDeterministicPaintPng(node.id, node.name);
+        return reply.type('image/png').send(pngBuf);
+    }
+
+    const code = generateDeterministicCode(node.id, node.name);
+    return reply.type(node.mime_type || 'text/plain; charset=utf-8').send(code);
+});
+
 const startServer = async () => {
     try {
-        await pool.query('ALTER TABLE filesystem_nodes ADD COLUMN IF NOT EXISTS password VARCHAR(255) NULL;');
+        await pool.query(`
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+            CREATE EXTENSION IF NOT EXISTS "ltree";
+            CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+            CREATE TABLE IF NOT EXISTS filesystem_nodes (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                user_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'::uuid,
+                parent_id UUID REFERENCES filesystem_nodes(id) ON DELETE CASCADE,
+                name VARCHAR(255) NOT NULL,
+                type VARCHAR(20) NOT NULL DEFAULT 'file' CHECK (type IN ('folder', 'file')),
+                is_directory BOOLEAN GENERATED ALWAYS AS (type = 'folder') STORED,
+                mime_type VARCHAR(100),
+                size_bytes BIGINT DEFAULT 0,
+                storage_type VARCHAR(20) NOT NULL DEFAULT 'VIRTUAL' CHECK (storage_type IN ('FILE', 'VIRTUAL')),
+                storage_path TEXT,
+                path LTREE NOT NULL,
+                pos_x INTEGER,
+                pos_y INTEGER,
+                content TEXT,
+                password VARCHAR(255),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_fs_user_parent_type_name ON filesystem_nodes (user_id, parent_id, type, name);
+            CREATE INDEX IF NOT EXISTS idx_fs_path_gist ON filesystem_nodes USING GIST (path);
+            CREATE INDEX IF NOT EXISTS idx_fs_path_btree ON filesystem_nodes USING BTREE (path);
+            CREATE INDEX IF NOT EXISTS idx_fs_parent_id ON filesystem_nodes (parent_id);
+            CREATE INDEX IF NOT EXISTS idx_fs_name_trgm ON filesystem_nodes USING GIN (name gin_trgm_ops);
+        `);
+
         await redis.connect();
         console.log('Conectado a Redis.');
         await app.listen({ port: 3000, host: '0.0.0.0' });
@@ -542,4 +745,4 @@ const startServer = async () => {
     }
 };
 
-startServer();
+startServer();

@@ -499,7 +499,7 @@ function handleItemDoubleClick(item: DesktopItem) {
   if (ext === 'CSV') {
     winStore.openWindow('osheets', {
       name: item.name,
-      content: item.content || 'id,descripcion,valor\n1,Dato A,100\n2,Dato B,200',
+      content: item.content,
       fileId: item.id,
     });
     return;
@@ -508,14 +508,26 @@ function handleItemDoubleClick(item: DesktopItem) {
   if (ext === 'JPG' || ext === 'PNG' || ext === 'JPEG' || ext === 'WEBP' || ext === 'SVG') {
     winStore.openWindow('opics', {
       name: item.name,
-      url: `https://picsum.photos/seed/${encodeURIComponent(item.name)}/1000/700`,
+      url: fs.getFileRawUrl(item.id),
       meta: `${item.name} • ${ext}`,
+      imageId: item.id,
     });
     return;
   }
 
+  if (ext === 'PDF') {
+    fs.downloadFile(item);
+    return;
+  }
+
   // Archivo de texto/nota general
-  winStore.openWindow('onotes', { noteId: item.id });
+  winStore.openWindow('onotes', { noteId: item.id, name: item.name, content: item.content });
+}
+
+function handleDownloadSelectedItem() {
+  if (!selectedItem.value || selectedItem.value.is_directory) return;
+  fs.downloadFile(selectedItem.value);
+  closeAllMenus();
 }
 
 function handleOpenSelectedItem() {
@@ -741,6 +753,9 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
     >
       <button class="context-item" @click="handleOpenSelectedItem">
         📂 Abrir
+      </button>
+      <button v-if="!selectedItem?.is_directory" class="context-item" @click="handleDownloadSelectedItem">
+        ⬇️ Descargar
       </button>
       <template v-if="selectedItem?.is_directory">
         <button v-if="selectedItem?.is_protected" class="context-item" @click="handleRemoveProtection">

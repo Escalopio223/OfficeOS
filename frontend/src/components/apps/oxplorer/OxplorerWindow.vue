@@ -58,18 +58,9 @@ function handleItemDoubleClick(item: any) {
 
   // 1. Archivos de hoja de cálculo (.CSV) -> Osheets
   if (ext === 'CSV') {
-    const csvContent = item.content || [
-      'id_transaccion,servicio,region,latencia_ms,estado,fecha',
-      `"TX-${item.id.slice(0, 6)}","PostgreSQL Primary","eu-west-1","1.4","OK","2026-10-01"`,
-      `"TX-${item.id.slice(0, 5)}A","Redis Cache Layer","eu-west-1","0.2","HIT","2026-10-02"`,
-      `"TX-${item.id.slice(0, 5)}B","Fastify Worker","us-east-1","3.8","OK","2026-10-03"`,
-      `"TX-${item.id.slice(0, 5)}C","Trigram Indexer","eu-central-1","2.1","OK","2026-10-04"`,
-      `"TX-${item.id.slice(0, 5)}D","Auth Guard","eu-west-1","0.9","VERIFIED","2026-10-05"`,
-    ].join('\n');
-
     winStore.openWindow('osheets', {
       name: item.name,
-      content: csvContent,
+      content: item.content,
       fileId: item.id,
     });
     return;
@@ -77,49 +68,33 @@ function handleItemDoubleClick(item: any) {
 
   // 2. Archivos de imagen (.JPG, .PNG, .JPEG, .WEBP, .SVG) -> Opics
   if (ext === 'JPG' || ext === 'PNG' || ext === 'JPEG' || ext === 'WEBP' || ext === 'SVG') {
-    const seed = encodeURIComponent(item.name);
     winStore.openWindow('opics', {
       name: item.name,
-      url: `https://picsum.photos/seed/${seed}/1000/700`,
+      url: fs.getFileRawUrl(item.id),
       meta: `${formatBytes(item.size_bytes)} • ${ext}`,
+      imageId: item.id,
     });
     return;
   }
 
-  // 3. Archivos de texto y código (.TXT, .MD, .JSON, .LOG, .SQL) -> Onotes
-  let textContent = item.content || '';
-  if (!textContent) {
-    if (ext === 'JSON') {
-      textContent = JSON.stringify(
-        {
-          node_id: item.id,
-          name: item.name,
-          path: item.path,
-          size_bytes: item.size_bytes,
-          mime_type: item.mime_type,
-          storage_engine: 'PostgreSQL LTree + Redis',
-        },
-        null,
-        2
-      );
-    } else if (ext === 'SQL') {
-      textContent = `-- Migración de nodo: ${item.name}\nCREATE INDEX CONCURRENTLY idx_fs_path_gist ON fs_nodes USING GIST (path);\nSELECT * FROM fs_nodes WHERE path <@ '${item.path}' LIMIT 50;`;
-    } else if (ext === 'LOG') {
-      textContent = `[2026-10-13 09:14:22] INFO  [Fastify] GET /api/fs/children?path=${item.path} 200 OK (1.2ms)\n[2026-10-13 09:14:23] DEBUG [Redis] Cache HIT key="dir:${item.path}"\n[2026-10-13 09:14:25] INFO  [Auth] Session validated for user=administrador`;
-    } else if (ext === 'MD') {
-      textContent = `# ${item.name}\n\nRuta en el árbol: \`${item.path}\`\n\n## Detalles técnicos\n- **Tamaño:** ${formatBytes(item.size_bytes)}\n- **MIME:** \`${item.mime_type}\`\n- **Indexación:** Búsqueda difusa por trigramas activa.`;
-    } else {
-      textContent = `Documento: ${item.name}\nRuta: ${item.path}\nTamaño: ${formatBytes(item.size_bytes)}\n\nContenido de texto cargado desde el sistema de archivos OogleOS.`;
-    }
+  // 3. Documentos PDF -> Descargar directamente
+  if (ext === 'PDF') {
+    fs.downloadFile(item);
+    return;
   }
 
+  // 4. Archivos de texto y código (.TXT, .MD, .JSON, .LOG, .SQL, .JS, .TS) -> Onotes
   winStore.openWindow('onotes', {
     noteId: item.id,
-    virtualFile: {
-      name: item.name,
-      content: textContent,
-    },
+    name: item.name,
+    content: item.content,
   });
+}
+
+function handleDownloadSelectedItem() {
+  if (!selectedItem.value || selectedItem.value.is_directory) return;
+  fs.downloadFile(selectedItem.value);
+  closeAllMenus();
 }
 
 // Modal personalizado para nombrar carpetas y archivos
@@ -656,6 +631,18 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- Botón para cargar más nodos en carpetas con miles de archivos -->
+      <div v-if="fs.hasMore" class="load-more-wrapper">
+        <button
+          class="load-more-btn"
+          :disabled="fs.loadingMore"
+          @click="fs.loadMoreFolderContents()"
+        >
+          <span v-if="fs.loadingMore" class="spinner"></span>
+          <span>{{ fs.loadingMore ? 'Cargando más nodos...' : `Cargar más (${fs.nodes.length} de ${fs.total} nodos)` }}</span>
+        </button>
+      </div>
+
       <div v-if="fs.nodes.length === 0 && !fs.loading" class="empty-state">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -697,6 +684,9 @@ onMounted(() => {
     >
       <button class="context-item" @click="handleOpenSelectedItem">
         <span>{{ selectedItem.is_directory ? '📁 Abrir Carpeta' : '📂 Abrir' }}</span>
+      </button>
+      <button v-if="!selectedItem?.is_directory" class="context-item" @click="handleDownloadSelectedItem">
+        <span>⬇️ Descargar archivo</span>
       </button>
       <template v-if="selectedItem?.is_directory">
         <button v-if="selectedItem?.is_protected" class="context-item" @click="handleRemoveProtection">
@@ -766,12 +756,14 @@ onMounted(() => {
     <!-- Barra de estado -->
     <footer class="window-statusbar">
       <div class="status-info">
-        <span class="status-item">{{ fs.nodes.length }} elementos</span>
+        <span class="status-item">{{ fs.nodes.length }} de {{ fs.total }} elementos</span>
+        <span class="status-divider">|</span>
+        <span class="status-item">Pág. {{ fs.page }} / {{ fs.totalPages }}</span>
         <span class="status-divider">|</span>
         <span class="status-item">Indexación Trigram</span>
       </div>
       <div class="status-legend">
-        <span>PostgreSQL + Redis</span>
+        <span>PostgreSQL + Redis (100k nodos)</span>
       </div>
     </footer>
   </div>
@@ -1381,5 +1373,55 @@ onMounted(() => {
   opacity: 0.45;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+.load-more-wrapper {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px 0;
+  width: 100%;
+}
+
+.load-more-btn {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(8px);
+}
+
+.load-more-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.24);
+  border-color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+  transform: translateY(-1px);
+}
+
+.load-more-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(56, 189, 248, 0.25);
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

@@ -39,12 +39,20 @@ function formatBytes(bytes: number = 0): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-function getThumbUrl(name: string): string {
-  return `https://picsum.photos/seed/${encodeURIComponent(name)}/320/220`;
+function getImageUrl(img: ImageNode | string): string {
+  if (typeof img === 'object' && img?.id) {
+    return `/api/files/${img.id}/raw`;
+  }
+  const name = typeof img === 'object' ? img.name : img;
+  return `https://picsum.photos/seed/${encodeURIComponent(name)}/800/600`;
 }
 
-function getFullUrl(name: string): string {
-  return `https://picsum.photos/seed/${encodeURIComponent(name)}/1000/700`;
+function getThumbUrl(img: ImageNode | string): string {
+  return getImageUrl(img);
+}
+
+function getFullUrl(img: ImageNode | string): string {
+  return getImageUrl(img);
 }
 
 async function fetchImages(query = '') {
@@ -86,12 +94,24 @@ function clearSearch() {
 function openSingleImage(img: ImageNode, idx: number) {
   currentImageIndex.value = idx;
   fileName.value = img.name;
-  imageUrl.value = getFullUrl(img.name);
+  imageUrl.value = getFullUrl(img);
   imageMeta.value = `${formatBytes(img.size_bytes)} • ${img.path || 'OogleOS'}`;
   currentMode.value = 'single';
   zoom.value = 1;
   rotation.value = 0;
   winStore.windows['opics'].title = `${img.name} — Opics`;
+}
+
+function downloadCurrentImage() {
+  const currentImg = images.value[currentImageIndex.value];
+  if (currentImg?.id) {
+    const a = document.createElement('a');
+    a.href = `/api/files/${currentImg.id}/download`;
+    a.download = currentImg.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
 }
 
 function returnToGallery() {
@@ -262,6 +282,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
             <button class="tool-btn" @click="zoomIn">🔍 +</button>
             <button class="tool-btn" @click="rotate">↻ Rotar</button>
             <button class="tool-btn" @click="resetView">Restaurar</button>
+            <button class="tool-btn" title="Descargar imagen al equipo" @click="downloadCurrentImage">⬇️ Descargar</button>
           </div>
         </div>
 
@@ -293,7 +314,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
           @click="openSingleImage(img, idx)"
         >
           <div class="card-thumb-wrapper">
-            <img :src="getThumbUrl(img.name)" :alt="img.name" class="card-thumb" loading="lazy" />
+            <img :src="getThumbUrl(img)" :alt="img.name" class="card-thumb" loading="lazy" />
           </div>
           <div class="card-info">
             <span class="card-name" :title="img.name">{{ img.name }}</span>
