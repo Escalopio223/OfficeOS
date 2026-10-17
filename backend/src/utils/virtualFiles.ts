@@ -317,11 +317,12 @@ export function generateDeterministicPdf(seedKey: string, fileName: string): Buf
     'Q'
   ];
 
-  let y = 675;
-  streamLines.push('BT', '/F1 11 Tf', '0.15 0.18 0.22 rg', `45 ${y} Td`);
-  for (const para of paragraphs) {
-    streamLines.push(`(${para}) '`);
-    y -= 26;
+  streamLines.push('BT', '/F1 11 Tf', '20 TL', '0.15 0.18 0.22 rg', '45 675 Td');
+  for (let i = 0; i < paragraphs.length; i++) {
+    streamLines.push(`(${paragraphs[i]}) Tj`);
+    if (i < paragraphs.length - 1) {
+      streamLines.push('T*');
+    }
   }
   streamLines.push('ET');
 
@@ -359,22 +360,22 @@ export function generateDeterministicPdf(seedKey: string, fileName: string): Buf
   );
 
   const streamContent = streamLines.join('\n');
-  const streamLength = Buffer.byteLength(streamContent, 'utf8');
+  const streamLength = Buffer.byteLength(streamContent, 'ascii');
 
   const obj1 = '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n';
   const obj2 = '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n';
   const obj3 = '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n';
   const obj4 = `4 0 obj\n<< /Length ${streamLength} >>\nstream\n${streamContent}\nendstream\nendobj\n`;
-  const obj5 = '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n';
+  const obj5 = '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n';
 
-  const header = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
+  const header = '%PDF-1.4\n%Opdf-Standard-1.4\n';
   const offsets: number[] = [0];
-  let cur = Buffer.byteLength(header, 'utf8');
+  let cur = Buffer.byteLength(header, 'ascii');
 
   const objects = [obj1, obj2, obj3, obj4, obj5];
   for (const obj of objects) {
     offsets.push(cur);
-    cur += Buffer.byteLength(obj, 'utf8');
+    cur += Buffer.byteLength(obj, 'ascii');
   }
 
   const startXref = cur;
@@ -385,7 +386,7 @@ export function generateDeterministicPdf(seedKey: string, fileName: string): Buf
   xref += `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${startXref}\n%%EOF\n`;
 
   const fullPdf = header + objects.join('') + xref;
-  return Buffer.from(fullPdf, 'utf8');
+  return Buffer.from(fullPdf, 'ascii');
 }
 
 /**

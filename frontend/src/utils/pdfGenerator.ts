@@ -215,17 +215,17 @@ export function buildStandardPdf(doc: PdfDocumentData): Uint8Array {
   // Objeto 5: Font Bold
   objects.push({
     num: 5,
-    content: new TextEncoder().encode('5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n'),
+    content: new TextEncoder().encode('5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n'),
   });
 
   // Objeto 6: Font Regular
   objects.push({
     num: 6,
-    content: new TextEncoder().encode('6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n'),
+    content: new TextEncoder().encode('6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n'),
   });
 
   // Ensamblado final con cálculo preciso de offsets para xref
-  const header = new TextEncoder().encode('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  const header = new TextEncoder().encode('%PDF-1.4\n%Opdf-Standard-1.4\n');
   const offsets: number[] = [0]; // offset 0 para objeto 0 (vacío)
   let currentOffset = header.length;
 
@@ -280,4 +280,145 @@ export function downloadPdfFile(doc: PdfDocumentData, fileName = 'documento.pdf'
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Extrae metadatos y contenido legible de un archivo o buffer PDF preexistente.
+ */
+export function extractPdfData(
+  raw: ArrayBuffer | Uint8Array | string,
+  fallbackName = 'Documento.pdf'
+): PdfDocumentData {
+  let text = '';
+  if (typeof raw === 'string') {
+    text = raw;
+  } else if (raw instanceof Uint8Array) {
+    text = new TextDecoder('latin1').decode(raw);
+  } else if (raw instanceof ArrayBuffer) {
+    text = new TextDecoder('latin1').decode(new Uint8Array(raw));
+  }
+
+  const cleanFallbackTitle = fallbackName.replace(/\.pdf$/i, '').replace(/_/g, ' ');
+
+  // Si no contiene la cabecera PDF, tratar como texto plano
+  if (!text.includes('%PDF-')) {
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    return {
+      title: lines[0] || cleanFallbackTitle,
+      subtitle: lines.length > 1 ? lines[1] : 'Documento de texto',
+      category: 'DOCUMENTO',
+      author: 'Usuario OogleOS',
+      date: new Date().toISOString().slice(0, 10),
+      content: lines.slice(lines.length > 1 ? 2 : 1).join('\n') || text || 'Sin contenido.',
+    };
+  }
+
+  const extractedLines: string[] = [];
+  const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  let streamMatch: RegExpExecArray | null;
+
+  while ((streamMatch = streamRegex.exec(text)) !== null) {
+    const streamBody = streamMatch[1] ?? '';
+    // Operadores Tj y '
+    const tjRegex = /\(((?:\\\(|\\\)|\\\\|[^\(\)])*?)\)\s*(?:Tj|'|")/g;
+    let tjMatch: RegExpExecArray | null;
+    while ((tjMatch = tjRegex.exec(streamBody)) !== null) {
+      const decoded = (tjMatch[1] ?? '')
+        .replace(/\\([\\()])/g, '$1')
+        .trim();
+      if (decoded && !extractedLines.includes(decoded)) {
+        extractedLines.push(decoded);
+      }
+    }
+
+    // Operadores TJ con array
+    const arrayRegex = /\[(.*?)\]\s*TJ/g;
+    let arrayMatch: RegExpExecArray | null;
+    while ((arrayMatch = arrayRegex.exec(streamBody)) !== null) {
+      const arrayContent = arrayMatch[1] ?? '';
+      const partRegex = /\(((?:\\\(|\\\)|\\\\|[^\(\)])*?)\)/g;
+      let partMatch: RegExpExecArray | null;
+      let fullLine = '';
+      while ((partMatch = partRegex.exec(arrayContent)) !== null) {
+        fullLine += (partMatch[1] ?? '').replace(/\\([\\()])/g, '$1') + ' ';
+      }
+      const trimmed = fullLine.trim();
+      if (trimmed && !extractedLines.includes(trimmed)) {
+        extractedLines.push(trimmed);
+      }
+    }
+  }
+
+  if (extractedLines.length === 0) {
+    const fallbackTj = /\(((?:\\\(|\\\)|\\\\|[^\(\)])*?)\)\s*Tj/g;
+    let m: RegExpExecArray | null;
+    while ((m = fallbackTj.exec(text)) !== null) {
+      const item = (m[1] ?? '').replace(/\\([\\()])/g, '$1').trim();
+      if (item && !extractedLines.includes(item)) {
+        extractedLines.push(item);
+      }
+    }
+  }
+
+  let title = cleanFallbackTitle;
+  let subtitle = 'Documento oficial';
+  let category = 'OFICIAL';
+  let author = 'Administrador OogleOS';
+  let date = new Date().toISOString().slice(0, 10);
+  const contentParagraphs: string[] = [];
+
+  for (const line of extractedLines) {
+    if (line.includes('OPDF') || line.includes('REF:') || line.includes('CATEGORIA:')) {
+      const catMatch = line.match(/(?:CATEGORIA|REF):\s*([^|\)]+)/i);
+      if (catMatch && catMatch[1]) {
+        category = catMatch[1].trim();
+      }
+      continue;
+    }
+
+    if (line.toLowerCase().includes('fecha')) {
+      const dateMatch = line.match(/\d{4}-\d{2}-\d{2}/) || line.match(/\d{1,2}\/\d{1,2}\/\d{4}/);
+      if (dateMatch) {
+        date = dateMatch[0];
+      }
+      const authorMatch = line.match(/Autor:\s*([^|)]+)/i);
+      if (authorMatch && authorMatch[1]) {
+        author = authorMatch[1].trim();
+      }
+      continue;
+    }
+
+    if (
+      line.toLowerCase().includes('firma autorizada') ||
+      line.toLowerCase().includes('documento verificado') ||
+      line.toLowerCase().includes('pagina 1')
+    ) {
+      continue;
+    }
+
+    if (title === cleanFallbackTitle && line.length < 80 && !line.includes(':') && !line.includes('.')) {
+      title = line;
+      continue;
+    }
+
+    if (subtitle === 'Documento oficial' && line.length < 90 && !line.startsWith('1.') && !line.startsWith('-')) {
+      subtitle = line;
+      continue;
+    }
+
+    contentParagraphs.push(line);
+  }
+
+  const finalContent = contentParagraphs.length > 0
+    ? contentParagraphs.join('\n\n')
+    : `Documento PDF: ${cleanFallbackTitle}\n\nEste archivo se encuentra almacenado en el sistema de archivos de OogleOS.`;
+
+  return {
+    title,
+    subtitle,
+    category,
+    author,
+    date,
+    content: finalContent,
+  };
 }

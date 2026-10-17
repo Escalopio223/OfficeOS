@@ -4,7 +4,7 @@ import { useWindowStore } from '@/stores/windowStore';
 import { useWindowBounds } from '@/composables/useWindowBounds';
 import { useDesktopStore } from '@/stores/desktopStore';
 import { notifyFilesystemChanged } from '@/stores/filesystem';
-import { downloadPdfFile, buildStandardPdf, type PdfDocumentData } from '@/utils/pdfGenerator';
+import { downloadPdfFile, buildStandardPdf, extractPdfData, type PdfDocumentData } from '@/utils/pdfGenerator';
 import opdfSvg from '@/assets/opdf.svg';
 
 const winStore = useWindowStore();
@@ -27,8 +27,11 @@ const errorMessage = ref('');
 const successMessage = ref('');
 const isLoading = ref(false);
 
-// Modos: 'viewer' (Visor nativo e interactivo) | 'editor' (Creador y redactor de PDFs)
+// Modos: 'viewer' (Visor interactivo) | 'editor' (Creador y redactor de PDFs)
 const activeMode = ref<'viewer' | 'editor'>('viewer');
+
+// Formato de visor: 'doc' (Hoja A4 fiel y estable) | 'native' (Plugin PDF del navegador)
+const viewFormat = ref<'doc' | 'native'>('doc');
 
 // Zoom del visor
 const zoom = ref(100);
@@ -154,10 +157,14 @@ async function loadExistingPdf(fileId: string) {
     const blob = new Blob([arrayBuf], { type: 'application/pdf' });
     pdfBlobUrl.value = URL.createObjectURL(blob);
 
-    // Deducir datos básicos para el editor si se desea modificar
-    docTitle.value = fileName.value.replace(/\.pdf$/i, '').replace(/_/g, ' ');
-    docSubtitle.value = 'Documento cargado desde el sistema de archivos';
-    docCategory.value = 'DOCUMENTO';
+    // Extraer datos reales del PDF preexistente
+    const parsed = extractPdfData(arrayBuf, fileName.value);
+    docTitle.value = parsed.title;
+    docSubtitle.value = parsed.subtitle || 'Documento cargado desde el sistema de archivos';
+    docCategory.value = parsed.category || 'DOCUMENTO';
+    docAuthor.value = parsed.author || 'Usuario OogleOS';
+    docDate.value = parsed.date || new Date().toISOString().slice(0, 10);
+    docContent.value = parsed.content;
     isSaved.value = true;
   } catch (err: any) {
     errorMessage.value = err?.message || 'No se pudo cargar el PDF.';
@@ -388,6 +395,26 @@ onUnmounted(() => {
       </div>
 
       <div class="toolbar-right">
+        <!-- Selector de Formato de Visor: Documento A4 vs Embebido -->
+        <div v-if="activeMode === 'viewer'" class="view-format-tabs">
+          <button
+            class="format-tab-btn"
+            :class="{ active: viewFormat === 'doc' }"
+            title="Vista de Lectura A4 de Opdf (Estable y 100% compatible)"
+            @click="viewFormat = 'doc'"
+          >
+            📄 Documento A4
+          </button>
+          <button
+            class="format-tab-btn"
+            :class="{ active: viewFormat === 'native' }"
+            title="Visor PDF Nativo del Navegador"
+            @click="viewFormat = 'native'"
+          >
+            🖥️ Visor Plugin
+          </button>
+        </div>
+
         <!-- Control de Zoom -->
         <div class="zoom-controls">
           <button class="tool-btn zoom-btn" title="Reducir zoom" @click="zoomOut">🔍 -</button>
@@ -435,16 +462,8 @@ onUnmounted(() => {
         </div>
 
         <div v-else class="pdf-stage" :style="{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center' }">
-          <!-- Si el navegador soporta incrustación en iframe de application/pdf -->
-          <iframe
-            v-if="pdfBlobUrl"
-            :src="pdfBlobUrl + '#toolbar=0&navpanes=0'"
-            class="pdf-native-frame"
-            title="Visor PDF"
-          ></iframe>
-
-          <!-- Hoja A4 renderizada (fallback visual de alta fidelidad) -->
-          <div class="a4-sheet">
+          <!-- Vista A4 maquetada de alta fidelidad (100% compatible y sin fallos) -->
+          <div v-if="viewFormat === 'doc'" class="a4-sheet active-sheet">
             <div class="sheet-stripe"></div>
             <div class="sheet-header">
               <span class="sheet-org">OOGLEOS SUITE — OPDF</span>
@@ -467,6 +486,16 @@ onUnmounted(() => {
               <span>Página 1 / 1</span>
             </div>
           </div>
+
+          <!-- Visor embebido estándar del navegador -->
+          <object
+            v-else-if="pdfBlobUrl"
+            :data="pdfBlobUrl + '#toolbar=0&navpanes=0'"
+            type="application/pdf"
+            class="pdf-native-frame"
+          >
+            <embed :src="pdfBlobUrl" type="application/pdf" class="pdf-native-frame" />
+          </object>
         </div>
       </div>
 
@@ -810,6 +839,36 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
+.view-format-tabs {
+  display: flex;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.format-tab-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.format-tab-btn:hover {
+  color: #ffffff;
+}
+
+.format-tab-btn.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
 .mode-tabs {
   display: flex;
   background: rgba(0, 0, 0, 0.35);
@@ -922,7 +981,21 @@ onUnmounted(() => {
 
 /* HOJA A4 */
 .a4-sheet {
-  display: none; /* Se visualiza por defecto el iframe embebido nativo */
+  display: none;
+}
+
+.a4-sheet.active-sheet {
+  display: flex !important;
+  width: 620px;
+  min-height: 860px;
+  background: #ffffff;
+  color: #1e293b;
+  border-radius: 6px;
+  padding: 45px 50px;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.65);
+  position: relative;
+  flex-direction: column;
+  user-select: text;
 }
 
 /* Fallback o Vista Previa en Editor */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildStandardPdf, createPdfBlob, type PdfDocumentData } from '@/utils/pdfGenerator';
+import { buildStandardPdf, createPdfBlob, extractPdfData, type PdfDocumentData } from '@/utils/pdfGenerator';
 
 describe('pdfGenerator (Opdf Engine)', () => {
   it('should generate a valid %PDF-1.4 binary structure', () => {
@@ -39,5 +39,24 @@ describe('pdfGenerator (Opdf Engine)', () => {
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.type).toBe('application/pdf');
     expect(blob.size).toBeGreaterThan(500);
+  });
+
+  it('should extract title, content and metadata from a generated PDF using extractPdfData', () => {
+    const original: PdfDocumentData = {
+      title: 'Auditoria de Rendimiento',
+      subtitle: 'Segundo Trimestre 2026',
+      author: 'Ingenieria OogleOS',
+      date: '2026-10-17',
+      category: 'AUDITORIA',
+      content: 'Parrafo uno de prueba.\nParrafo dos de prueba.',
+    };
+
+    const binary = buildStandardPdf(original);
+    const extracted = extractPdfData(binary, 'Auditoria.pdf');
+
+    expect(extracted.title).toBe('Auditoria de Rendimiento');
+    expect(extracted.category).toContain('AUDITORIA');
+    expect(extracted.content).toContain('Parrafo uno de prueba.');
+    expect(extracted.content).toContain('Parrafo dos de prueba.');
   });
 });

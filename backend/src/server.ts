@@ -636,6 +636,7 @@ app.get('/api/files/:id/raw', async (request, reply) => {
     }
 
     if (node.mime_type === 'application/pdf' || lower.endsWith('.pdf')) {
+        // Generar binario determinista estándar PDF-1.4
         const pdfBuf = generateDeterministicPdf(node.id, node.name);
         return reply.type('application/pdf').send(pdfBuf);
     }
