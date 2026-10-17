@@ -7,10 +7,12 @@ import OxplorerWindow from '@/components/apps/oxplorer/OxplorerWindow.vue';
 import OnotesWindow from '@/components/apps/onotes/OnotesWindow.vue';
 import OsheetsWindow from '@/components/apps/osheets/OsheetsWindow.vue';
 import OpicsWindow from '@/components/apps/opics/OpicsWindow.vue';
+import OpdfWindow from '@/components/apps/opdf/OpdfWindow.vue';
 import oxplorerSvg from '@/assets/oxplorer.svg';
 import onotesSvg from '@/assets/onotes.svg';
 import osheetsSvg from '@/assets/osheets.svg';
 import opicsSvg from '@/assets/opics.svg';
+import opdfSvg from '@/assets/opdf.svg';
 import SecurityModal from '@/components/common/SecurityModal.vue';
 
 const winStore = useWindowStore();
@@ -22,14 +24,14 @@ const ICON_WIDTH = 84;
 const ICON_HEIGHT = 86;
 const COLLISION_PADDING = 6; // Margen mínimo de separación entre iconos
 
-// Definición de las 4 aplicaciones principales del sistema en el Escritorio
+// Definición de las aplicaciones principales del sistema en el Escritorio
 interface AppShortcut {
   id: string;
   name: string;
   icon: string;
   x: number;
   y: number;
-  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics';
+  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf';
 }
 
 const appShortcuts = ref<AppShortcut[]>([
@@ -37,6 +39,7 @@ const appShortcuts = ref<AppShortcut[]>([
   { id: 'app_onotes', name: 'Onotes', icon: onotesSvg, x: 24, y: 120, windowId: 'onotes' },
   { id: 'app_osheets', name: 'Osheets', icon: osheetsSvg, x: 24, y: 216, windowId: 'osheets' },
   { id: 'app_opics', name: 'Opics', icon: opicsSvg, x: 24, y: 312, windowId: 'opics' },
+  { id: 'app_opdf', name: 'Opdf', icon: opdfSvg, x: 24, y: 408, windowId: 'opdf' },
 ]);
 
 // Control de arrastre y estado de colisión en tiempo real
@@ -315,6 +318,8 @@ function handleAppShortcutDoubleClick(app: AppShortcut) {
     winStore.openWindow('osheets', { isNew: true });
   } else if (app.windowId === 'opics') {
     winStore.openWindow('opics', { mode: 'gallery' });
+  } else if (app.windowId === 'opdf') {
+    winStore.openWindow('opdf', { isNew: true });
   }
 }
 
@@ -359,6 +364,21 @@ function handleCreateSheet() {
         name: sheet.name,
         content: sheet.content,
         fileId: sheet.id,
+      });
+    }
+  });
+  closeAllMenus();
+}
+
+function handleCreatePdf() {
+  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  desktopStore.createPdf('Nuevo Documento.pdf', '', freePos.x, freePos.y).then((pdf) => {
+    if (pdf) {
+      winStore.openWindow('opdf', {
+        fileId: pdf.id,
+        name: pdf.name,
+        content: pdf.content,
+        isNew: true,
       });
     }
   });
@@ -516,7 +536,11 @@ function handleItemDoubleClick(item: DesktopItem) {
   }
 
   if (ext === 'PDF') {
-    fs.downloadFile(item);
+    winStore.openWindow('opdf', {
+      fileId: item.id,
+      name: item.name,
+      content: item.content,
+    });
     return;
   }
 
@@ -739,6 +763,9 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       <button class="context-item" @click="handleCreateSheet">
         📊 Nueva Hoja de Cálculo (Osheets)
       </button>
+      <button class="context-item" @click="handleCreatePdf">
+        📄 Nuevo Documento PDF (Opdf)
+      </button>
       <button class="context-item" @click="handleOpenOpics">
         🖼️ Galería de Fotos (Opics)
       </button>
@@ -790,6 +817,7 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
     <OnotesWindow v-if="winStore.windows['onotes']?.isOpen" />
     <OsheetsWindow v-if="winStore.windows['osheets']?.isOpen" />
     <OpicsWindow v-if="winStore.windows['opics']?.isOpen" />
+    <OpdfWindow v-if="winStore.windows['opdf']?.isOpen" />
   </main>
 </template>
 

@@ -77,9 +77,13 @@ function handleItemDoubleClick(item: any) {
     return;
   }
 
-  // 3. Documentos PDF -> Descargar directamente
+  // 3. Documentos PDF -> Abrir en Opdf
   if (ext === 'PDF') {
-    fs.downloadFile(item);
+    winStore.openWindow('opdf', {
+      fileId: item.id,
+      name: item.name,
+      content: item.content,
+    });
     return;
   }
 
@@ -101,10 +105,10 @@ function handleDownloadSelectedItem() {
 const showNameModal = ref(false);
 const modalTitle = ref('');
 const modalInput = ref('');
-const modalType = ref<'folder' | 'file' | 'note' | 'sheet'>('folder');
+const modalType = ref<'folder' | 'file' | 'note' | 'sheet' | 'pdf'>('folder');
 const modalInputRef = ref<HTMLInputElement | null>(null);
 
-function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet') {
+function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet' | 'pdf') {
   closeAllMenus();
   modalType.value = type;
   if (type === 'folder') {
@@ -116,6 +120,9 @@ function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet') {
   } else if (type === 'sheet') {
     modalTitle.value = 'Nueva Hoja de Cálculo (Osheets)';
     modalInput.value = 'Nueva Hoja.csv';
+  } else if (type === 'pdf') {
+    modalTitle.value = 'Nuevo Documento PDF (Opdf)';
+    modalInput.value = 'Nuevo Documento.pdf';
   } else {
     modalTitle.value = 'Nuevo Archivo';
     modalInput.value = 'Nuevo Documento.txt';
@@ -174,6 +181,26 @@ async function confirmCreateModal() {
         name: node.name,
         content: node.content,
         fileId: node.id,
+      });
+    }
+  } else if (modalType.value === 'pdf') {
+    let pdfName = name;
+    if (!pdfName.toLowerCase().endsWith('.pdf')) {
+      pdfName += '.pdf';
+    }
+    const node = await fs.createNode({
+      name: pdfName,
+      is_directory: false,
+      content: '',
+      parentId: fs.currentFolder?.id,
+      parentPath: fs.currentFolder?.path,
+    });
+    if (node) {
+      winStore.openWindow('opdf', {
+        fileId: node.id,
+        name: node.name,
+        content: node.content,
+        isNew: true,
       });
     }
   } else {
@@ -298,6 +325,11 @@ function handleCreateNoteFromMenu() {
 function handleCreateSheetFromMenu() {
   closeAllMenus();
   openCreateModal('sheet');
+}
+
+function handleCreatePdfFromMenu() {
+  closeAllMenus();
+  openCreateModal('pdf');
 }
 
 function handleOpenOpicsFromMenu() {
@@ -545,6 +577,15 @@ onMounted(() => {
           </svg>
           <span>+ Archivo</span>
         </button>
+        <button class="action-btn" title="Crear Documento PDF" @click="openCreateModal('pdf')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <path d="M9 13h2a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9v-3z" stroke-width="1.5" />
+            <path d="M9 13v5" stroke-width="1.5" />
+          </svg>
+          <span>+ PDF</span>
+        </button>
       </div>
 
       <div class="address-bar">
@@ -669,6 +710,9 @@ onMounted(() => {
       </button>
       <button class="context-item" @click="handleCreateSheetFromMenu">
         📊 Nueva Hoja de Cálculo (Osheets)
+      </button>
+      <button class="context-item" @click="handleCreatePdfFromMenu">
+        📄 Nuevo Documento PDF (Opdf)
       </button>
       <button class="context-item" @click="handleOpenOpicsFromMenu">
         🖼️ Galería de Fotos (Opics)

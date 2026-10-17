@@ -607,7 +607,14 @@ app.get('/api/files/:id/raw', async (request, reply) => {
 
     // A. Contenido explícito en BD (archivos editados/creados)
     if (node.content !== null && node.content !== undefined) {
-        return reply.type(node.mime_type || 'text/plain; charset=utf-8').send(node.content);
+        let mime = node.mime_type;
+        if (!mime || mime === 'text/plain') {
+            const lower = node.name.toLowerCase();
+            if (lower.endsWith('.pdf')) mime = 'application/pdf';
+            else if (lower.endsWith('.csv')) mime = 'text/csv; charset=utf-8';
+            else if (lower.endsWith('.json')) mime = 'application/json';
+        }
+        return reply.type(mime || 'text/plain; charset=utf-8').send(node.content);
     }
 
     // B. Almacenamiento Físico ('FILE')
@@ -666,7 +673,14 @@ app.get('/api/files/:id/download', async (request, reply) => {
 
     // A. Contenido explícito en BD
     if (node.content !== null && node.content !== undefined) {
-        return reply.type(node.mime_type || 'text/plain; charset=utf-8').send(node.content);
+        let mime = node.mime_type;
+        if (!mime || mime === 'text/plain') {
+            const lower = node.name.toLowerCase();
+            if (lower.endsWith('.pdf')) mime = 'application/pdf';
+            else if (lower.endsWith('.csv')) mime = 'text/csv; charset=utf-8';
+            else if (lower.endsWith('.json')) mime = 'application/json';
+        }
+        return reply.type(mime || 'text/plain; charset=utf-8').send(node.content);
     }
 
     // B. Almacenamiento Físico ('FILE')

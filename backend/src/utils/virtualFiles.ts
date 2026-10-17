@@ -272,56 +272,120 @@ Registro de actividad del sistema:
  * Genera un PDF binario mínimo estándar y válido (%PDF-1.4) con texto visible.
  */
 export function generateDeterministicPdf(seedKey: string, fileName: string): Buffer {
-  const cleanTitle = fileName.replace(/[^a-zA-Z0-9_\-\. ]/g, '');
-  const bodyText = `OogleOS Documento Oficial: ${cleanTitle}`;
-  const subText = `ID: ${seedKey} - Generado por arquitectura hibrida 100k`;
+  const seed = hashString(seedKey || fileName);
+  const rng = createRng(seed);
 
-  const streamContent = `BT
-/F1 18 Tf
-50 720 Td
-(${bodyText}) Tj
-/F1 12 Tf
-0 -30 Td
-(${subText}) Tj
-ET`;
+  const cleanTitle = fileName.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_\-\. ]/g, ' ');
+  const refCode = `DOC-${seed.toString(16).slice(0, 6).toUpperCase()}-${Math.floor(rng() * 9000 + 1000)}`;
+  const dateStr = `2026-0${Math.floor(rng() * 9 + 1)}-${String(Math.floor(rng() * 28 + 1)).padStart(2, '0')}`;
 
+  const paragraphs = [
+    `Este documento confidencial certifica los registros y especificaciones del archivo ${fileName}.`,
+    `1. OBJETO: Auditoria de integridad de arquitectura hibrida para el sistema operativo OogleOS.`,
+    `2. ALCANCE: Indexacion de 100.000 nodos en PostgreSQL con extension ltree y aceleracion Redis.`,
+    `3. RESOLUCION: Se valida la disponibilidad del servicio y la entrega de binarios en streaming.`,
+    `4. CONFORMIDAD: El presente archivo se encuentra firmado digitalmente por la autoridad Opdf.`
+  ];
+
+  const streamLines: string[] = [
+    'q',
+    '0.92 0.26 0.21 rg',
+    '45 795 505 6 re f', // Barra roja Opdf
+    'Q',
+    'BT',
+    '/F1 10 Tf',
+    '0.4 0.45 0.5 rg',
+    '45 775 Td',
+    `(OOGLEOS SUITE - OPDF | REF: ${refCode}) Tj`,
+    'ET',
+    'BT',
+    '/F1 18 Tf',
+    '0.1 0.15 0.25 rg',
+    '45 745 Td',
+    `(${cleanTitle}) Tj`,
+    'ET',
+    'BT',
+    '/F1 9 Tf',
+    '0.5 0.55 0.6 rg',
+    '45 722 Td',
+    `(Fecha de emision: ${dateStr}   |   ID de Nodo: ${seedKey.slice(0, 18)}...) Tj`,
+    'ET',
+    'q',
+    '0.85 0.88 0.92 RG',
+    '1 w',
+    '45 708 m 550 708 l S',
+    'Q'
+  ];
+
+  let y = 675;
+  streamLines.push('BT', '/F1 11 Tf', '0.15 0.18 0.22 rg', `45 ${y} Td`);
+  for (const para of paragraphs) {
+    streamLines.push(`(${para}) '`);
+    y -= 26;
+  }
+  streamLines.push('ET');
+
+  // Firma
+  streamLines.push(
+    'q',
+    '0.85 0.88 0.92 RG',
+    '1 w',
+    '45 100 m 200 100 l S',
+    'Q',
+    'BT',
+    '/F1 9 Tf',
+    '0.4 0.45 0.5 rg',
+    '45 85 Td',
+    '(Firma Autorizada: Direccion de Tecnologia) Tj',
+    'ET',
+    // Pie de página
+    'q',
+    '0.85 0.88 0.92 RG',
+    '1 w',
+    '45 50 m 550 50 l S',
+    'Q',
+    'BT',
+    '/F1 8 Tf',
+    '0.55 0.6 0.65 rg',
+    '45 36 Td',
+    '(OogleOS Opdf Viewer | Documento PDF Oficial) Tj',
+    'ET',
+    'BT',
+    '/F1 8 Tf',
+    '0.55 0.6 0.65 rg',
+    '500 36 Td',
+    '(Pagina 1 / 1) Tj',
+    'ET'
+  );
+
+  const streamContent = streamLines.join('\n');
   const streamLength = Buffer.byteLength(streamContent, 'utf8');
 
-  const pdf = `%PDF-1.4
-1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
-endobj
-3 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
-endobj
-4 0 obj
-<< /Length ${streamLength} >>
-stream
-${streamContent}
-endstream
-endobj
-5 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
-endobj
-xref
-0 6
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000244 00000 n 
-0000000${String(300 + streamLength).padStart(3, '0')} 00000 n 
-trailer
-<< /Size 6 /Root 1 0 R >>
-startxref
-${400 + streamLength}
-%%EOF
-`;
+  const obj1 = '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n';
+  const obj2 = '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n';
+  const obj3 = '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n';
+  const obj4 = `4 0 obj\n<< /Length ${streamLength} >>\nstream\n${streamContent}\nendstream\nendobj\n`;
+  const obj5 = '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n';
 
-  return Buffer.from(pdf, 'utf8');
+  const header = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
+  const offsets: number[] = [0];
+  let cur = Buffer.byteLength(header, 'utf8');
+
+  const objects = [obj1, obj2, obj3, obj4, obj5];
+  for (const obj of objects) {
+    offsets.push(cur);
+    cur += Buffer.byteLength(obj, 'utf8');
+  }
+
+  const startXref = cur;
+  let xref = `xref\n0 ${offsets.length}\n0000000000 65535 f \n`;
+  for (let i = 1; i < offsets.length; i++) {
+    xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
+  xref += `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${startXref}\n%%EOF\n`;
+
+  const fullPdf = header + objects.join('') + xref;
+  return Buffer.from(fullPdf, 'utf8');
 }
 
 /**

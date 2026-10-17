@@ -170,6 +170,41 @@ export const useDesktopStore = defineStore('desktop', () => {
         }
     }
 
+    async function createPdf(
+        name = 'Nuevo Documento.pdf',
+        content = '',
+        x = 120,
+        y = 120
+    ): Promise<DesktopItem | null> {
+        try {
+            let pdfName = name.trim();
+            if (!pdfName.toLowerCase().endsWith('.pdf')) {
+                pdfName += '.pdf';
+            }
+            const res = await fetch('/api/nodes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: pdfName,
+                    is_directory: false,
+                    content,
+                    parentPath: 'root.desktop',
+                    pos_x: x,
+                    pos_y: y,
+                    mime_type: 'application/pdf',
+                }),
+            });
+            if (!res.ok) return null;
+            const node: FileNode = await res.json();
+            const newItem = toDesktopItem(node, x, y);
+            items.value.push(newItem);
+            notifyFilesystemChanged();
+            return newItem;
+        } catch {
+            return null;
+        }
+    }
+
     async function createFolder(
         name = 'Nueva Carpeta',
         x = 120,
@@ -304,6 +339,7 @@ export const useDesktopStore = defineStore('desktop', () => {
         fetchDesktopItems,
         createNote,
         createSheet,
+        createPdf,
         createFolder,
         renameItem,
         deleteItem,

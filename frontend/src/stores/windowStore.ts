@@ -11,7 +11,7 @@ export interface WindowInstance {
     data?: any;
 }
 
-export type WindowId = 'oxplorer' | 'onotes' | 'osheets' | 'opics';
+export type WindowId = 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf';
 
 export type WindowsMap = {
     [K in WindowId]: WindowInstance;
@@ -54,6 +54,15 @@ export const useWindowStore = defineStore('windowManager', () => {
             isMinimized: false,
             isMaximized: false,
             zIndex: 13,
+            data: null,
+        },
+        opdf: {
+            id: 'opdf',
+            title: 'Opdf',
+            isOpen: false,
+            isMinimized: false,
+            isMaximized: false,
+            zIndex: 14,
             data: null,
         },
     });
