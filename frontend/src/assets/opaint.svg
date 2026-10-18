@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 425" width="500" height="425">
+  <defs>
+    <linearGradient id="brushGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4285F4" />
+      <stop offset="50%" stop-color="#34A853" />
+      <stop offset="100%" stop-color="#FBBC04" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="2" dy="6" stdDeviation="6" flood-opacity="0.18" />
+    </filter>
+  </defs>
+
+  <!-- Pestañas de fondo representativas -->
+  <rect x="400" y="68" width="70" height="80" rx="18" fill="#4285F4"/>
+  <rect x="400" y="166" width="70" height="80" rx="18" fill="#FBBC04"/>
+  <rect x="400" y="264" width="70" height="80" rx="18" fill="#EA4335"/>
+
+  <!-- Lienzo/Página base -->
+  <rect x="268" y="35" width="177" height="360" rx="28" fill="#F8FAFC" filter="url(#shadow)"/>
+
+  <!-- Lienzo de dibujo con paleta y manchas de color -->
+  <path d="M305 85H415V345H305Z" fill="#FFFFFF"/>
+  <circle cx="340" cy="130" r="14" fill="#EA4335"/>
+  <circle cx="380" cy="145" r="16" fill="#4285F4"/>
+  <circle cx="345" cy="180" r="12" fill="#34A853"/>
+  <circle cx="385" cy="200" r="15" fill="#FBBC04"/>
+  <circle cx="355" cy="235" r="18" fill="#A855F7"/>
+
+  <!-- Pincel con punta colorida -->
+  <path d="M395 315 L350 270 L362 258 L407 303 Z" fill="#475569"/>
+  <path d="M346 274 L335 285 Q325 296 338 298 Q345 290 354 282 Z" fill="#EA4335"/>
+  <rect x="360" y="260" width="8" height="18" rx="2" transform="rotate(-45 364 269)" fill="#CBD5E1"/>
+
+  <!-- Portada del cuaderno OogleOS (Violeta/Magenta/Coral artístico moderno) -->
+  <polygon points="45,68 278,22 278,403 45,365" fill="#8B5CF6" stroke="#8B5CF6" stroke-width="20" stroke-linejoin="round"/>
+
+  <!-- Letra O distintiva de OogleOS -->
+  <ellipse cx="161" cy="214" rx="70" ry="98" fill="#FFFFFF"/>
+  <ellipse cx="161" cy="214" rx="29" ry="49" fill="#8B5CF6"/>
+
+  <!-- Detalle de salpicadura de pintura en la 'O' -->
+  <circle cx="210" cy="160" r="8" fill="#34A853" />
+  <circle cx="218" cy="180" r="5" fill="#FBBC04" />
+</svg>

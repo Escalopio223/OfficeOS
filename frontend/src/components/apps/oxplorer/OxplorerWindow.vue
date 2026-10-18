@@ -6,6 +6,7 @@ import { useDesktopStore } from '@/stores/desktopStore';
 import { useWindowBounds } from '@/composables/useWindowBounds';
 import oxplorerSvg from '@/assets/oxplorer.svg';
 import SecurityModal from '@/components/common/SecurityModal.vue';
+import WindowControls from '@/components/common/WindowControls.vue';
 
 const fs = useFileSystemStore();
 const winStore = useWindowStore();
@@ -87,6 +88,16 @@ function handleItemDoubleClick(item: any) {
     return;
   }
 
+  // 4. Archivos de dibujo (.OPAINT) -> Opaint
+  if (ext === 'OPAINT') {
+    winStore.openWindow('opaint', {
+      fileId: item.id,
+      name: item.name,
+      content: item.content,
+    });
+    return;
+  }
+
   // 4. Archivos de texto y código (.TXT, .MD, .JSON, .LOG, .SQL, .JS, .TS) -> Onotes
   winStore.openWindow('onotes', {
     noteId: item.id,
@@ -105,10 +116,10 @@ function handleDownloadSelectedItem() {
 const showNameModal = ref(false);
 const modalTitle = ref('');
 const modalInput = ref('');
-const modalType = ref<'folder' | 'file' | 'note' | 'sheet' | 'pdf'>('folder');
+const modalType = ref<'folder' | 'file' | 'note' | 'sheet' | 'pdf' | 'paint'>('folder');
 const modalInputRef = ref<HTMLInputElement | null>(null);
 
-function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet' | 'pdf') {
+function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet' | 'pdf' | 'paint') {
   closeAllMenus();
   modalType.value = type;
   if (type === 'folder') {
@@ -123,6 +134,9 @@ function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet' | 'pdf') {
   } else if (type === 'pdf') {
     modalTitle.value = 'Nuevo Documento PDF (Opdf)';
     modalInput.value = 'Nuevo Documento.pdf';
+  } else if (type === 'paint') {
+    modalTitle.value = 'Nuevo Dibujo (Opaint)';
+    modalInput.value = 'Nuevo Dibujo.opaint';
   } else {
     modalTitle.value = 'Nuevo Archivo';
     modalInput.value = 'Nuevo Documento.txt';
@@ -197,6 +211,26 @@ async function confirmCreateModal() {
     });
     if (node) {
       winStore.openWindow('opdf', {
+        fileId: node.id,
+        name: node.name,
+        content: node.content,
+        isNew: true,
+      });
+    }
+  } else if (modalType.value === 'paint') {
+    let paintName = name;
+    if (!paintName.toLowerCase().endsWith('.opaint')) {
+      paintName += '.opaint';
+    }
+    const node = await fs.createNode({
+      name: paintName,
+      is_directory: false,
+      content: '',
+      parentId: fs.currentFolder?.id,
+      parentPath: fs.currentFolder?.path,
+    });
+    if (node) {
+      winStore.openWindow('opaint', {
         fileId: node.id,
         name: node.name,
         content: node.content,
@@ -330,6 +364,11 @@ function handleCreateSheetFromMenu() {
 function handleCreatePdfFromMenu() {
   closeAllMenus();
   openCreateModal('pdf');
+}
+
+function handleCreatePaintFromMenu() {
+  closeAllMenus();
+  openCreateModal('paint');
 }
 
 function handleOpenOpicsFromMenu() {
@@ -519,25 +558,7 @@ onMounted(() => {
           </span>
         </div>
 
-        <div class="win-controls">
-          <button class="win-btn minimize" title="Minimizar" @click="winStore.toggleMinimize('oxplorer')">
-            <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          </button>
-          <button class="win-btn maximize" title="Maximizar / Restaurar" @click="winStore.toggleMaximize('oxplorer')">
-            <svg v-if="winState.isMaximized" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="5" y="7" width="11" height="11" rx="1.5"/>
-              <path d="M8 7V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-2"/>
-            </svg>
-            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="4" y="4" width="16" height="16" rx="2"/>
-            </svg>
-          </button>
-          <button class="win-btn close" title="Cerrar" @click="winStore.closeWindow('oxplorer')">
-            <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
+        <WindowControls window-id="oxplorer" :is-maximized="winState.isMaximized" />
       </div>
     </header>
 
@@ -713,6 +734,9 @@ onMounted(() => {
       </button>
       <button class="context-item" @click="handleCreatePdfFromMenu">
         📄 Nuevo Documento PDF (Opdf)
+      </button>
+      <button class="context-item" @click="handleCreatePaintFromMenu">
+        🎨 Nuevo Dibujo (Opaint)
       </button>
       <button class="context-item" @click="handleOpenOpicsFromMenu">
         🖼️ Galería de Fotos (Opics)

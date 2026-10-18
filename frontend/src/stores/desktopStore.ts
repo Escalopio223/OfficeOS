@@ -205,6 +205,41 @@ export const useDesktopStore = defineStore('desktop', () => {
         }
     }
 
+    async function createPaintFile(
+        name = 'Nuevo Dibujo.opaint',
+        content = '',
+        x = 120,
+        y = 120
+    ): Promise<DesktopItem | null> {
+        try {
+            let paintName = name.trim();
+            if (!paintName.toLowerCase().endsWith('.opaint')) {
+                paintName += '.opaint';
+            }
+            const res = await fetch('/api/nodes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: paintName,
+                    is_directory: false,
+                    content,
+                    parentPath: 'root.desktop',
+                    pos_x: x,
+                    pos_y: y,
+                    mime_type: 'application/x-opaint',
+                }),
+            });
+            if (!res.ok) return null;
+            const node: FileNode = await res.json();
+            const newItem = toDesktopItem(node, x, y);
+            items.value.push(newItem);
+            notifyFilesystemChanged();
+            return newItem;
+        } catch {
+            return null;
+        }
+    }
+
     async function createFolder(
         name = 'Nueva Carpeta',
         x = 120,
@@ -340,6 +375,7 @@ export const useDesktopStore = defineStore('desktop', () => {
         createNote,
         createSheet,
         createPdf,
+        createPaintFile,
         createFolder,
         renameItem,
         deleteItem,

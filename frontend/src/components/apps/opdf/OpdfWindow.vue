@@ -6,6 +6,7 @@ import { useDesktopStore } from '@/stores/desktopStore';
 import { notifyFilesystemChanged } from '@/stores/filesystem';
 import { downloadPdfFile, buildStandardPdf, extractPdfData, type PdfDocumentData } from '@/utils/pdfGenerator';
 import opdfSvg from '@/assets/opdf.svg';
+import WindowControls from '@/components/common/WindowControls.vue';
 
 const winStore = useWindowStore();
 const desktopStore = useDesktopStore();
@@ -360,13 +361,7 @@ onUnmounted(() => {
         <span>{{ fileName }} {{ isSaved ? '' : '*' }} — Opdf Visor</span>
       </div>
 
-      <div class="win-controls" @mousedown.stop @dblclick.stop>
-        <button class="win-btn" title="Minimizar" @click="winStore.toggleMinimize('opdf')">—</button>
-        <button class="win-btn" title="Maximizar" @click="winStore.toggleMaximize('opdf')">
-          {{ winState.isMaximized ? '❐' : '□' }}
-        </button>
-        <button class="win-btn close" title="Cerrar" @click="winStore.closeWindow('opdf')">✕</button>
-      </div>
+      <WindowControls window-id="opdf" :is-maximized="winState.isMaximized" />
     </header>
 
     <!-- Barra de Herramientas -->

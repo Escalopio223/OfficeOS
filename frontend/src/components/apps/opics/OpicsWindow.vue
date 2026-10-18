@@ -4,6 +4,7 @@ import { useWindowStore } from '@/stores/windowStore';
 import { useWindowBounds } from '@/composables/useWindowBounds';
 import { filesystemEvent } from '@/stores/filesystem';
 import opicsSvg from '@/assets/opics.svg';
+import WindowControls from '@/components/common/WindowControls.vue';
 
 interface ImageNode {
   id: string;
@@ -225,13 +226,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
         <span>{{ currentMode === 'gallery' ? 'Galería de Fotos' : fileName }} — Opics</span>
       </div>
 
-      <div class="win-controls" @mousedown.stop @dblclick.stop>
-        <button class="win-btn" title="Minimizar" @click="winStore.toggleMinimize('opics')">—</button>
-        <button class="win-btn" title="Maximizar" @click="winStore.toggleMaximize('opics')">
-          {{ winState.isMaximized ? '❐' : '□' }}
-        </button>
-        <button class="win-btn close" title="Cerrar" @click="winStore.closeWindow('opics')">✕</button>
-      </div>
+      <WindowControls window-id="opics" :is-maximized="winState.isMaximized" />
     </header>
 
     <!-- Barra de Herramientas Dinámica -->

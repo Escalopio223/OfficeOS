@@ -5,6 +5,7 @@ import { useDesktopStore } from '@/stores/desktopStore';
 import { useFileSystemStore, notifyFilesystemChanged } from '@/stores/filesystem';
 import { useWindowBounds } from '@/composables/useWindowBounds';
 import onotesSvg from '@/assets/onotes.svg';
+import WindowControls from '@/components/common/WindowControls.vue';
 
 const winStore = useWindowStore();
 const desktopStore = useDesktopStore();
@@ -234,13 +235,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
         <span>{{ noteName }} {{ isSaved ? '' : '*' }} — Onotes</span>
       </div>
 
-      <div class="win-controls" @mousedown.stop @dblclick.stop>
-        <button class="win-btn" title="Minimizar" @click="winStore.toggleMinimize('onotes')">—</button>
-        <button class="win-btn" title="Maximizar" @click="winStore.toggleMaximize('onotes')">
-          {{ winState.isMaximized ? '❐' : '□' }}
-        </button>
-        <button class="win-btn close" title="Cerrar" @click="winStore.closeWindow('onotes')">✕</button>
-      </div>
+      <WindowControls window-id="onotes" :is-maximized="winState.isMaximized" />
     </header>
 
     <!-- Barra de acciones y nombre de archivo -->

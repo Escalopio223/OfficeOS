@@ -5,6 +5,7 @@ import { useDesktopStore } from '@/stores/desktopStore';
 import { notifyFilesystemChanged } from '@/stores/filesystem';
 import { useWindowBounds } from '@/composables/useWindowBounds';
 import osheetsSvg from '@/assets/osheets.svg';
+import WindowControls from '@/components/common/WindowControls.vue';
 
 const winStore = useWindowStore();
 const desktopStore = useDesktopStore();
@@ -321,13 +322,7 @@ function handleDoubleClickHeader(e: MouseEvent) {
         <span>{{ fileName }} {{ isSaved ? '' : '*' }} — Osheets</span>
       </div>
 
-      <div class="win-controls" @mousedown.stop @dblclick.stop>
-        <button class="win-btn" title="Minimizar" @click="winStore.toggleMinimize('osheets')">—</button>
-        <button class="win-btn" title="Maximizar" @click="winStore.toggleMaximize('osheets')">
-          {{ winState.isMaximized ? '❐' : '□' }}
-        </button>
-        <button class="win-btn close" title="Cerrar" @click="winStore.closeWindow('osheets')">✕</button>
-      </div>
+      <WindowControls window-id="osheets" :is-maximized="winState.isMaximized" />
     </header>
 
     <!-- Barra de acciones -->

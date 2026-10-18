@@ -8,11 +8,13 @@ import OnotesWindow from '@/components/apps/onotes/OnotesWindow.vue';
 import OsheetsWindow from '@/components/apps/osheets/OsheetsWindow.vue';
 import OpicsWindow from '@/components/apps/opics/OpicsWindow.vue';
 import OpdfWindow from '@/components/apps/opdf/OpdfWindow.vue';
+import OpaintWindow from '@/components/apps/opaint/OpaintWindow.vue';
 import oxplorerSvg from '@/assets/oxplorer.svg';
 import onotesSvg from '@/assets/onotes.svg';
 import osheetsSvg from '@/assets/osheets.svg';
 import opicsSvg from '@/assets/opics.svg';
 import opdfSvg from '@/assets/opdf.svg';
+import opaintSvg from '@/assets/opaint.svg';
 import SecurityModal from '@/components/common/SecurityModal.vue';
 
 const winStore = useWindowStore();
@@ -31,7 +33,7 @@ interface AppShortcut {
   icon: string;
   x: number;
   y: number;
-  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf';
+  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf' | 'opaint';
 }
 
 const appShortcuts = ref<AppShortcut[]>([
@@ -40,6 +42,7 @@ const appShortcuts = ref<AppShortcut[]>([
   { id: 'app_osheets', name: 'Osheets', icon: osheetsSvg, x: 24, y: 216, windowId: 'osheets' },
   { id: 'app_opics', name: 'Opics', icon: opicsSvg, x: 24, y: 312, windowId: 'opics' },
   { id: 'app_opdf', name: 'Opdf', icon: opdfSvg, x: 24, y: 408, windowId: 'opdf' },
+  { id: 'app_opaint', name: 'Opaint', icon: opaintSvg, x: 24, y: 504, windowId: 'opaint' },
 ]);
 
 // Control de arrastre y estado de colisión en tiempo real
@@ -320,6 +323,8 @@ function handleAppShortcutDoubleClick(app: AppShortcut) {
     winStore.openWindow('opics', { mode: 'gallery' });
   } else if (app.windowId === 'opdf') {
     winStore.openWindow('opdf', { isNew: true });
+  } else if (app.windowId === 'opaint') {
+    winStore.openWindow('opaint', { isNew: true });
   }
 }
 
@@ -378,6 +383,21 @@ function handleCreatePdf() {
         fileId: pdf.id,
         name: pdf.name,
         content: pdf.content,
+        isNew: true,
+      });
+    }
+  });
+  closeAllMenus();
+}
+
+function handleCreatePaint() {
+  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  desktopStore.createPaintFile('Nuevo Dibujo.opaint', '', freePos.x, freePos.y).then((paint) => {
+    if (paint) {
+      winStore.openWindow('opaint', {
+        fileId: paint.id,
+        name: paint.name,
+        content: paint.content,
         isNew: true,
       });
     }
@@ -537,6 +557,15 @@ function handleItemDoubleClick(item: DesktopItem) {
 
   if (ext === 'PDF') {
     winStore.openWindow('opdf', {
+      fileId: item.id,
+      name: item.name,
+      content: item.content,
+    });
+    return;
+  }
+
+  if (ext === 'OPAINT') {
+    winStore.openWindow('opaint', {
       fileId: item.id,
       name: item.name,
       content: item.content,
@@ -766,6 +795,9 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       <button class="context-item" @click="handleCreatePdf">
         📄 Nuevo Documento PDF (Opdf)
       </button>
+      <button class="context-item" @click="handleCreatePaint">
+        🎨 Nuevo Dibujo (Opaint)
+      </button>
       <button class="context-item" @click="handleOpenOpics">
         🖼️ Galería de Fotos (Opics)
       </button>
@@ -818,6 +850,7 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
     <OsheetsWindow v-if="winStore.windows['osheets']?.isOpen" />
     <OpicsWindow v-if="winStore.windows['opics']?.isOpen" />
     <OpdfWindow v-if="winStore.windows['opdf']?.isOpen" />
+    <OpaintWindow v-if="winStore.windows['opaint']?.isOpen" />
   </main>
 </template>
 
