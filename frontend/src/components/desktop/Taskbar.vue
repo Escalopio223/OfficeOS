@@ -10,6 +10,7 @@ import opaintSvg from '@/assets/opaint.svg';
 import omonitorSvg from '@/assets/omonitor.svg';
 import oplannerSvg from '@/assets/oplanner.svg';
 import { useWindowStore } from '@/stores/windowStore';
+import StartMenu from '@/components/desktop/StartMenu.vue';
 
 const winStore = useWindowStore();
 
@@ -17,10 +18,20 @@ defineEmits<{
   (e: 'toggle-start'): void;
 }>();
 
+const startMenuOpen = ref(false);
 const contextMenuVisible = ref(false);
 const contextMenuPos = ref({ x: 0, y: 0 });
 
+function toggleStartMenu(e: MouseEvent) {
+  e.stopPropagation();
+  startMenuOpen.value = !startMenuOpen.value;
+  if (contextMenuVisible.value) {
+    contextMenuVisible.value = false;
+  }
+}
+
 function onTaskbarContextMenu(e: MouseEvent) {
+  startMenuOpen.value = false;
   contextMenuPos.value = {
     x: Math.min(e.clientX, window.innerWidth - 240),
     y: Math.max(10, window.innerHeight - 130),
@@ -45,6 +56,12 @@ function toggleDesktop() {
 function handleGlobalClick(e: MouseEvent) {
   if (contextMenuVisible.value) {
     closeContextMenu();
+  }
+  if (startMenuOpen.value) {
+    const target = e.target as HTMLElement;
+    if (!target.closest('.start-menu-container') && !target.closest('.oogle-start-btn')) {
+      startMenuOpen.value = false;
+    }
   }
 }
 
@@ -83,7 +100,12 @@ function getWindowIcon(id: string): string {
 <template>
   <footer class="taskbar" @contextmenu.prevent="onTaskbarContextMenu($event)">
     <div class="taskbar-left">
-      <button class="oogle-start-btn" aria-label="Menú Oogle" @click="$emit('toggle-start')">
+      <button
+        class="oogle-start-btn"
+        :class="{ active: startMenuOpen }"
+        aria-label="Menú Oogle"
+        @click="toggleStartMenu"
+      >
         <img :src="oogleLogoSvg" alt="Oogle" class="oogle-btn-icon" />
       </button>
 
@@ -106,6 +128,12 @@ function getWindowIcon(id: string): string {
     <div class="taskbar-status">
       <slot name="tray"></slot>
     </div>
+
+    <!-- Menú de Inicio desplegable estilo Windows -->
+    <StartMenu
+      v-if="startMenuOpen"
+      @close="startMenuOpen = false"
+    />
 
     <!-- Menú contextual de la barra de tareas -->
     <div
@@ -165,6 +193,13 @@ function getWindowIcon(id: string): string {
   background: rgba(255, 255, 255, 0.18);
   transform: scale(1.08);
   box-shadow: 0 0 10px rgba(66, 133, 244, 0.4);
+}
+
+.oogle-start-btn.active {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: #38bdf8;
+  transform: scale(1.05);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);
 }
 
 .oogle-btn-icon {
