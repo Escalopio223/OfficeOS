@@ -169,21 +169,19 @@ onUnmounted(() => {
         <span class="apps-count">{{ filteredApps.length }} disponibles</span>
       </div>
 
-      <!-- Cuadrícula de aplicaciones -->
+      <!-- Cuadrícula de aplicaciones estilo Windows 11 -->
       <div class="apps-grid">
         <div
           v-for="app in filteredApps"
           :key="app.id"
           class="app-card"
+          :title="`${app.name} — ${app.description}`"
           @click="launchApp(app.id)"
         >
           <div class="app-icon-wrap">
             <img :src="app.icon" :alt="app.name" class="app-icon-img" />
           </div>
-          <div class="app-info">
-            <span class="app-title">{{ app.name }}</span>
-            <span class="app-desc">{{ app.description }}</span>
-          </div>
+          <span class="app-title">{{ app.name }}</span>
         </div>
 
         <div v-if="filteredApps.length === 0" class="no-apps-found">
@@ -225,9 +223,9 @@ onUnmounted(() => {
   position: fixed;
   bottom: 58px;
   left: 14px;
-  width: 440px;
+  width: 480px;
   max-width: calc(100vw - 28px);
-  background: rgba(18, 24, 38, 0.92);
+  background: rgba(18, 24, 38, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 16px;
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.75), 0 0 1px rgba(255, 255, 255, 0.25);
@@ -253,7 +251,7 @@ onUnmounted(() => {
 }
 
 .start-search-bar {
-  padding: 16px 18px 12px 18px;
+  padding: 18px 20px 14px 20px;
   position: relative;
   display: flex;
   align-items: center;
@@ -261,7 +259,7 @@ onUnmounted(() => {
 
 .search-icon {
   position: absolute;
-  left: 30px;
+  left: 32px;
   width: 16px;
   height: 16px;
   color: #64748b;
@@ -288,7 +286,7 @@ onUnmounted(() => {
 
 .clear-search-btn {
   position: absolute;
-  right: 28px;
+  right: 32px;
   background: transparent;
   border: none;
   color: #94a3b8;
@@ -301,12 +299,12 @@ onUnmounted(() => {
 }
 
 .start-content-area {
-  padding: 0 18px 14px 18px;
-  max-height: 400px;
+  padding: 0 20px 16px 20px;
+  max-height: 420px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .start-content-area::-webkit-scrollbar {
@@ -321,7 +319,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 6px;
+  padding: 2px 4px;
 }
 
 .section-title {
@@ -337,18 +335,23 @@ onUnmounted(() => {
   color: #64748b;
 }
 
+/* Cuadrícula de Aplicaciones estilo Windows 11 Pinned Grid */
 .apps-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px 8px;
+  padding: 4px 0;
 }
 
 .app-card {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 12px 6px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid transparent;
   cursor: pointer;
@@ -356,47 +359,56 @@ onUnmounted(() => {
 }
 
 .app-card:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(56, 189, 248, 0.3);
-  transform: translateX(3px);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(56, 189, 248, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
 }
 
 .app-icon-wrap {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.app-card:hover .app-icon-wrap {
+  transform: scale(1.08);
+  background: rgba(56, 189, 248, 0.12);
 }
 
 .app-icon-img {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
-  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.4));
-}
-
-.app-info {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
 }
 
 .app-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #f8fafc;
-}
-
-.app-desc {
-  font-size: 11px;
-  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #f1f5f9;
+  line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 95px;
+}
+
+.no-apps-found {
+  grid-column: 1 / -1;
+  padding: 30px;
+  text-align: center;
+  color: #64748b;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .no-apps-found {
