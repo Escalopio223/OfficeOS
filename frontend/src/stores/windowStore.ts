@@ -9,9 +9,11 @@ export interface WindowInstance {
     isMaximized: boolean;
     zIndex: number;
     data?: any;
+    pid?: number;
+    openedAt?: number;
 }
 
-export type WindowId = 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf' | 'opaint';
+export type WindowId = 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf' | 'opaint' | 'omonitor';
 
 export type WindowsMap = {
     [K in WindowId]: WindowInstance;
@@ -74,6 +76,15 @@ export const useWindowStore = defineStore('windowManager', () => {
             zIndex: 15,
             data: null,
         },
+        omonitor: {
+            id: 'omonitor',
+            title: 'Administrador de tareas - Omonitor',
+            isOpen: false,
+            isMinimized: false,
+            isMaximized: false,
+            zIndex: 16,
+            data: null,
+        },
     });
 
     const topZIndex = ref(20);
@@ -81,6 +92,10 @@ export const useWindowStore = defineStore('windowManager', () => {
     function openWindow(id: string, data?: any) {
         const win = windows.value[id];
         if (!win) return;
+        if (!win.isOpen) {
+            win.openedAt = Date.now();
+            win.pid = Math.floor(1000 + Math.random() * 8999);
+        }
         win.isOpen = true;
         win.isMinimized = false;
         if (data !== undefined) win.data = data;
@@ -91,6 +106,8 @@ export const useWindowStore = defineStore('windowManager', () => {
         const win = windows.value[id];
         if (!win) return;
         win.isOpen = false;
+        win.openedAt = undefined;
+        win.pid = undefined;
     }
 
     function toggleMinimize(id: string) {
@@ -120,6 +137,16 @@ export const useWindowStore = defineStore('windowManager', () => {
         }
     }
 
+    // Alternar 'Mostrar escritorio' (minimizar todas las ventanas o restaurarlas)
+    function toggleShowDesktop() {
+        const openWins = Object.values(windows.value).filter((w): w is WindowInstance => !!w && w.isOpen);
+        const hasUnminimized = openWins.some((w) => !w.isMinimized);
+
+        for (const w of openWins) {
+            w.isMinimized = hasUnminimized;
+        }
+    }
+
     return {
         windows,
         openWindow,
@@ -127,5 +154,6 @@ export const useWindowStore = defineStore('windowManager', () => {
         toggleMinimize,
         toggleMaximize,
         focusWindow,
+        toggleShowDesktop,
     };
 });

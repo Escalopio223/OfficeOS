@@ -9,12 +9,14 @@ import OsheetsWindow from '@/components/apps/osheets/OsheetsWindow.vue';
 import OpicsWindow from '@/components/apps/opics/OpicsWindow.vue';
 import OpdfWindow from '@/components/apps/opdf/OpdfWindow.vue';
 import OpaintWindow from '@/components/apps/opaint/OpaintWindow.vue';
+import OmonitorWindow from '@/components/apps/omonitor/OmonitorWindow.vue';
 import oxplorerSvg from '@/assets/oxplorer.svg';
 import onotesSvg from '@/assets/onotes.svg';
 import osheetsSvg from '@/assets/osheets.svg';
 import opicsSvg from '@/assets/opics.svg';
 import opdfSvg from '@/assets/opdf.svg';
 import opaintSvg from '@/assets/opaint.svg';
+import omonitorSvg from '@/assets/omonitor.svg';
 import SecurityModal from '@/components/common/SecurityModal.vue';
 
 const winStore = useWindowStore();
@@ -33,7 +35,7 @@ interface AppShortcut {
   icon: string;
   x: number;
   y: number;
-  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf' | 'opaint';
+  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf' | 'opaint' | 'omonitor';
 }
 
 const appShortcuts = ref<AppShortcut[]>([
@@ -43,6 +45,7 @@ const appShortcuts = ref<AppShortcut[]>([
   { id: 'app_opics', name: 'Opics', icon: opicsSvg, x: 24, y: 312, windowId: 'opics' },
   { id: 'app_opdf', name: 'Opdf', icon: opdfSvg, x: 24, y: 408, windowId: 'opdf' },
   { id: 'app_opaint', name: 'Opaint', icon: opaintSvg, x: 24, y: 504, windowId: 'opaint' },
+  { id: 'app_omonitor', name: 'Omonitor', icon: omonitorSvg, x: 24, y: 600, windowId: 'omonitor' },
 ]);
 
 // Control de arrastre y estado de colisión en tiempo real
@@ -325,6 +328,10 @@ function handleAppShortcutDoubleClick(app: AppShortcut) {
     winStore.openWindow('opdf', { isNew: true });
   } else if (app.windowId === 'opaint') {
     winStore.openWindow('opaint', { isNew: true });
+  } else if (app.windowId === 'omonitor') {
+    winStore.openWindow('omonitor');
+  } else {
+    winStore.openWindow(app.windowId);
   }
 }
 
@@ -533,6 +540,9 @@ function handleItemDoubleClick(item: DesktopItem) {
     winStore.openWindow('oxplorer', { targetPath: item.path, targetFolder: item });
     return;
   }
+
+  // Notificar al backend sobre apertura de archivo (telemetría reactiva en tiempo real)
+  fs.notifyFileOpened(item.name);
 
   const ext = item.name.split('.').pop()?.toUpperCase() || '';
 
@@ -801,6 +811,10 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       <button class="context-item" @click="handleOpenOpics">
         🖼️ Galería de Fotos (Opics)
       </button>
+      <div class="menu-divider"></div>
+      <button class="context-item" @click="winStore.openWindow('omonitor'); closeAllMenus();">
+        📊 Administrador de tareas (Omonitor)
+      </button>
     </div>
 
     <!-- Menú Contextual: Item seleccionado (Archivo o Carpeta) -->
@@ -851,6 +865,7 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
     <OpicsWindow v-if="winStore.windows['opics']?.isOpen" />
     <OpdfWindow v-if="winStore.windows['opdf']?.isOpen" />
     <OpaintWindow v-if="winStore.windows['opaint']?.isOpen" />
+    <OmonitorWindow v-if="winStore.windows['omonitor']?.isOpen" />
   </main>
 </template>
 

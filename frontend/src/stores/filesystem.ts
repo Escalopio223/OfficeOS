@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { FileNode, NodesResponse, SearchResponse } from '@/types/filesystem'
+import { useOmonitorStore } from '@/stores/omonitorStore'
 
 // Evento global reactivo para sincronización inmediata entre Oxplorer y el Escritorio
 export const filesystemEvent = ref(0)
@@ -9,6 +10,7 @@ export function notifyFilesystemChanged() {
 }
 
 export const useFileSystemStore = defineStore('filesystem', () => {
+    const omonitor = useOmonitorStore()
     const currentFolder = ref<FileNode | null>(null)
     const history = ref<FileNode[]>([])
     const nodes = ref<FileNode[]>([])
@@ -52,6 +54,10 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
+    }
+
+    function notifyFileOpened(fileName: string) {
+        omonitor.reportFileAction('opened', fileName);
     }
 
     async function initRoot() {
@@ -175,7 +181,10 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         try {
             const res = await fetch('/api/nodes', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-session-id': omonitor.sessionId,
+                },
                 body: JSON.stringify(params),
             })
             if (!res.ok) return null
@@ -231,6 +240,9 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         try {
             const res = await fetch(`/api/nodes/${id}`, {
                 method: 'DELETE',
+                headers: {
+                    'x-session-id': omonitor.sessionId,
+                },
             })
             if (!res.ok) return false
             nodes.value = nodes.value.filter((n) => n.id !== id)
@@ -419,5 +431,6 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         getFileRawUrl,
         getFileDownloadUrl,
         downloadFile,
+        notifyFileOpened,
     }
 })

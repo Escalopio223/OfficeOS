@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue';
 import oogleLogoSvg from '@/assets/oogle-logo.svg';
 import oxplorerSvg from '@/assets/oxplorer.svg';
 import onotesSvg from '@/assets/onotes.svg';
 import osheetsSvg from '@/assets/osheets.svg';
 import opicsSvg from '@/assets/opics.svg';
 import opdfSvg from '@/assets/opdf.svg';
+import opaintSvg from '@/assets/opaint.svg';
+import omonitorSvg from '@/assets/omonitor.svg';
 import { useWindowStore } from '@/stores/windowStore';
 
 const winStore = useWindowStore();
@@ -12,6 +15,45 @@ const winStore = useWindowStore();
 defineEmits<{
   (e: 'toggle-start'): void;
 }>();
+
+const contextMenuVisible = ref(false);
+const contextMenuPos = ref({ x: 0, y: 0 });
+
+function onTaskbarContextMenu(e: MouseEvent) {
+  contextMenuPos.value = {
+    x: Math.min(e.clientX, window.innerWidth - 240),
+    y: Math.max(10, window.innerHeight - 130),
+  };
+  contextMenuVisible.value = true;
+}
+
+function closeContextMenu() {
+  contextMenuVisible.value = false;
+}
+
+function openTaskManager() {
+  winStore.openWindow('omonitor');
+  closeContextMenu();
+}
+
+function toggleDesktop() {
+  winStore.toggleShowDesktop();
+  closeContextMenu();
+}
+
+function handleGlobalClick(e: MouseEvent) {
+  if (contextMenuVisible.value) {
+    closeContextMenu();
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('click', handleGlobalClick);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('click', handleGlobalClick);
+});
 
 function getWindowIcon(id: string): string {
   switch (id) {
@@ -25,6 +67,10 @@ function getWindowIcon(id: string): string {
       return opicsSvg;
     case 'opdf':
       return opdfSvg;
+    case 'opaint':
+      return opaintSvg;
+    case 'omonitor':
+      return omonitorSvg;
     default:
       return oxplorerSvg;
   }
@@ -32,7 +78,7 @@ function getWindowIcon(id: string): string {
 </script>
 
 <template>
-  <footer class="taskbar">
+  <footer class="taskbar" @contextmenu.prevent="onTaskbarContextMenu($event)">
     <div class="taskbar-left">
       <button class="oogle-start-btn" aria-label="Menú Oogle" @click="$emit('toggle-start')">
         <img :src="oogleLogoSvg" alt="Oogle" class="oogle-btn-icon" />
@@ -56,6 +102,24 @@ function getWindowIcon(id: string): string {
 
     <div class="taskbar-status">
       <slot name="tray"></slot>
+    </div>
+
+    <!-- Menú contextual de la barra de tareas -->
+    <div
+      v-if="contextMenuVisible"
+      class="taskbar-context-menu"
+      :style="{ left: `${contextMenuPos.x}px`, top: `${contextMenuPos.y}px` }"
+      @click.stop
+    >
+      <button class="menu-action-item" @click="openTaskManager">
+        <img :src="omonitorSvg" alt="Omonitor" class="menu-icon" />
+        <span>Administrador de tareas / Omonitor</span>
+      </button>
+      <div class="menu-separator"></div>
+      <button class="menu-action-item" @click="toggleDesktop">
+        <span class="menu-emoji">🖥️</span>
+        <span>Mostrar el escritorio</span>
+      </button>
     </div>
   </footer>
 </template>
@@ -144,5 +208,70 @@ function getWindowIcon(id: string): string {
 .taskbar-status {
   font-size: 11px;
   color: #6c7086;
+}
+
+/* Menú Contextual de la Barra de Tareas */
+.taskbar-context-menu {
+  position: fixed;
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 9999;
+  min-width: 230px;
+  animation: context-pop 0.12s ease-out;
+}
+
+@keyframes context-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.menu-action-item {
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 8px 10px;
+  color: #cdd6f4;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: all 0.12s ease;
+}
+
+.menu-action-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.menu-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.menu-emoji {
+  font-size: 14px;
+}
+
+.menu-separator {
+  height: 1px;
+  background: #313244;
+  margin: 4px 0;
 }
 </style>

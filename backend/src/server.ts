@@ -10,10 +10,43 @@ import {
     generateDeterministicPdf,
     generateDeterministicPaintPng,
 } from './utils/virtualFiles';
+import { collectSystemMetrics } from './utils/systemMetrics';
+import {
+    telemetryEvents,
+    generateSessionHash,
+    categorizeReferrer,
+    parseUserAgent,
+    TelemetryLogEntry,
+    FileActivityEvent,
+} from './utils/telemetry';
 
 const app = Fastify({ logger: false });
 
 app.register(cors, { origin: true });
+
+// Interceptor de peticiones HTTP para emitir logs en tiempo real hacia Omonitor
+app.addHook('onResponse', async (request, reply) => {
+    const rawUrl = request.raw.url || request.url;
+    const urlPath = rawUrl.split('?')[0];
+
+    // Ignorar las conexiones SSE continuas para no inundar el stream
+    if (urlPath === '/api/system/stream') return;
+
+    const sessionIdHeader = (request.headers['x-session-id'] as string) || '';
+    const hash = sessionIdHeader ? generateSessionHash(sessionIdHeader) : '#anon';
+
+    const logEntry: TelemetryLogEntry = {
+        id: Math.random().toString(36).slice(2, 9),
+        timestamp: new Date().toLocaleTimeString(),
+        method: request.method,
+        url: urlPath,
+        statusCode: reply.statusCode,
+        durationMs: Math.round(reply.elapsedTime),
+        sessionHash: hash,
+    };
+
+    telemetryEvents.emit('log', logEntry);
+});
 
 // Pool de conexiones a PostgreSQL (Docker puerto 5433)
 const pool = new Pool({
@@ -48,6 +81,33 @@ async function invalidateDirCache() {
         }
     } catch {
         // Ignorar fallos de redis al limpiar caché
+    }
+}
+
+// Registro reactivo de actividad de archivos por sesión
+async function recordFileActivity(sessionId: string | undefined, fileName: string, action: 'created' | 'opened' | 'deleted') {
+    if (!sessionId) return;
+    try {
+        const hash = generateSessionHash(sessionId);
+        const col = action === 'created' ? 'files_created' : action === 'opened' ? 'files_opened' : 'files_deleted';
+
+        await pool.query(
+            `UPDATE telemetry_sessions 
+             SET ${col} = ${col} + 1, last_active_at = CURRENT_TIMESTAMP 
+             WHERE session_id = $1`,
+            [sessionId]
+        );
+
+        const activityEvent: FileActivityEvent = {
+            type: action,
+            sessionHash: hash,
+            fileName,
+            timestamp: new Date().toLocaleTimeString(),
+        };
+
+        telemetryEvents.emit('file_activity', activityEvent);
+    } catch (err) {
+        console.error('Error registrando actividad de archivo:', err);
     }
 }
 
@@ -295,6 +355,11 @@ app.post('/api/nodes', async (request, reply) => {
 
     await invalidateDirCache();
 
+    const clientSessionId = (request.headers['x-session-id'] as string) || '';
+    if (clientSessionId && !isDir) {
+        recordFileActivity(clientSessionId, name.trim(), 'created').catch(() => {});
+    }
+
     return reply.status(201).send(rows[0]);
 });
 
@@ -485,6 +550,11 @@ app.delete('/api/nodes/:id', async (request, reply) => {
 
     await pool.query('DELETE FROM filesystem_nodes WHERE path <@ $1::ltree', [node.path]);
     await invalidateDirCache();
+
+    const clientSessionId = (request.headers['x-session-id'] as string) || '';
+    if (clientSessionId) {
+        recordFileActivity(clientSessionId, node.name || 'archivo', 'deleted').catch(() => {});
+    }
 
     return { success: true, deletedId: id };
 });
@@ -716,6 +786,209 @@ app.get('/api/files/:id/download', async (request, reply) => {
     return reply.type(node.mime_type || 'text/plain; charset=utf-8').send(code);
 });
 
+// ==========================================
+// ENDPOINTS DE TELEMETRÍA Y SISTEMA (OMONITOR)
+// ==========================================
+
+// Stream Server-Sent Events (SSE) en tiempo real
+app.get('/api/system/stream', async (request, reply) => {
+    reply.hijack();
+    reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'X-Accel-Buffering': 'no',
+    });
+
+    const sendEvent = (event: string, data: any) => {
+        if (!reply.raw.writableEnded && reply.raw.writable) {
+            reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        }
+    };
+
+    const sendMetrics = async () => {
+        try {
+            const metrics = await collectSystemMetrics(pool, redis);
+            sendEvent('metrics', metrics);
+        } catch (err: any) {
+            sendEvent('error', { message: err?.message || 'Error recogiendo métricas' });
+        }
+    };
+
+    // Emitir métricas de inmediato al conectar
+    await sendMetrics();
+
+    // Pulso cada 2 segundos
+    const intervalId = setInterval(sendMetrics, 2000);
+
+    // Event listeners para logs en tiempo real y eventos de archivos/sesiones
+    const onLog = (log: TelemetryLogEntry) => sendEvent('log', log);
+    const onFileActivity = (activity: FileActivityEvent) => sendEvent('file_activity', activity);
+    const onSessionUpdate = (update: any) => sendEvent('session_update', update);
+
+    telemetryEvents.on('log', onLog);
+    telemetryEvents.on('file_activity', onFileActivity);
+    telemetryEvents.on('session_update', onSessionUpdate);
+
+    // Prevención estricta de Memory Leaks al cerrar la conexión
+    request.raw.on('close', () => {
+        clearInterval(intervalId);
+        telemetryEvents.off('log', onLog);
+        telemetryEvents.off('file_activity', onFileActivity);
+        telemetryEvents.off('session_update', onSessionUpdate);
+    });
+});
+
+// Registrar o actualizar sesión de usuario (RGPD compliance: sin IP)
+app.post('/api/telemetry/session', async (request, reply) => {
+    const {
+        sessionId,
+        userAgent,
+        screenResolution = 'Desconocido',
+        timezone = 'UTC',
+        language = 'es',
+        referrer = '',
+    } = (request.body || {}) as {
+        sessionId?: string;
+        userAgent?: string;
+        screenResolution?: string;
+        timezone?: string;
+        language?: string;
+        referrer?: string;
+    };
+
+    if (!sessionId) {
+        return reply.status(400).send({ error: 'sessionId es obligatorio' });
+    }
+
+    const { os: osName, browser: browserName } = parseUserAgent(userAgent || (request.headers['user-agent'] as string));
+    const referrerType = categorizeReferrer(referrer);
+    const sessionHash = generateSessionHash(sessionId);
+
+    const query = `
+        INSERT INTO telemetry_sessions (
+            session_id, session_hash, os, browser, screen_resolution, timezone, language, referrer, referrer_type, started_at, last_active_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (session_id) DO UPDATE SET
+            last_active_at = CURRENT_TIMESTAMP,
+            screen_resolution = EXCLUDED.screen_resolution,
+            timezone = EXCLUDED.timezone,
+            language = EXCLUDED.language
+        RETURNING *;
+    `;
+
+    const { rows } = await pool.query(query, [
+        sessionId,
+        sessionHash,
+        osName,
+        browserName,
+        screenResolution,
+        timezone,
+        language,
+        referrer || '',
+        referrerType,
+    ]);
+
+    const session = rows[0];
+    telemetryEvents.emit('session_update', { sessionHash, action: 'joined', timestamp: new Date().toISOString() });
+
+    return {
+        success: true,
+        sessionHash,
+        session,
+    };
+});
+
+// Heartbeat para mantener viva la sesión activa
+app.post('/api/telemetry/heartbeat', async (request, reply) => {
+    const { sessionId } = (request.body || {}) as { sessionId?: string };
+    if (!sessionId) {
+        return reply.status(400).send({ error: 'sessionId es obligatorio' });
+    }
+
+    await pool.query(
+        'UPDATE telemetry_sessions SET last_active_at = CURRENT_TIMESTAMP WHERE session_id = $1',
+        [sessionId]
+    );
+
+    return { success: true };
+});
+
+// Evento explícito de actividad sobre archivos (ej. archivo abierto en Onotes/Opdf/Opics)
+app.post('/api/telemetry/file-event', async (request, reply) => {
+    const { sessionId, fileName = 'archivo', action } = (request.body || {}) as {
+        sessionId?: string;
+        fileName?: string;
+        action?: 'opened' | 'created' | 'deleted';
+    };
+
+    if (!sessionId || !action) {
+        return reply.status(400).send({ error: 'sessionId y action son requeridos' });
+    }
+
+    await recordFileActivity(sessionId, fileName, action);
+    return { success: true };
+});
+
+// Listar sesiones de telemetría y métricas agregadas
+app.get('/api/telemetry/sessions', async (request, reply) => {
+    const { rows } = await pool.query(`
+        SELECT 
+            session_id,
+            session_hash,
+            os,
+            browser,
+            screen_resolution,
+            timezone,
+            language,
+            referrer,
+            referrer_type,
+            started_at,
+            last_active_at,
+            files_created,
+            files_opened,
+            files_deleted,
+            ROUND(EXTRACT(EPOCH FROM (last_active_at - started_at))) AS duration_seconds,
+            CASE 
+                WHEN last_active_at >= NOW() - INTERVAL '30 seconds' THEN true 
+                ELSE false 
+            END AS is_online
+        FROM telemetry_sessions
+        ORDER BY last_active_at DESC
+        LIMIT 50;
+    `);
+
+    const summaryRes = await pool.query(`
+        SELECT 
+            COUNT(*) AS total_sessions,
+            COUNT(*) FILTER (WHERE last_active_at >= NOW() - INTERVAL '30 seconds') AS online_count,
+            COALESCE(AVG(EXTRACT(EPOCH FROM (last_active_at - started_at))), 0) AS avg_duration_seconds,
+            COALESCE(SUM(files_created), 0) AS total_files_created,
+            COALESCE(SUM(files_opened), 0) AS total_files_opened,
+            COALESCE(SUM(files_deleted), 0) AS total_files_deleted
+        FROM telemetry_sessions;
+    `);
+
+    const summary = summaryRes.rows[0];
+
+    return {
+        sessions: rows,
+        summary: {
+            totalSessions: Number(summary?.total_sessions || 0),
+            onlineCount: Number(summary?.online_count || 0),
+            avgStaySeconds: Math.round(Number(summary?.avg_duration_seconds || 0)),
+            totalFilesManipulated:
+                Number(summary?.total_files_created || 0) +
+                Number(summary?.total_files_opened || 0) +
+                Number(summary?.total_files_deleted || 0),
+            totalFilesCreated: Number(summary?.total_files_created || 0),
+            totalFilesOpened: Number(summary?.total_files_opened || 0),
+            totalFilesDeleted: Number(summary?.total_files_deleted || 0),
+        },
+    };
+});
+
 const startServer = async () => {
     try {
         await pool.query(`
@@ -742,6 +1015,27 @@ const startServer = async () => {
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS telemetry_sessions (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                session_id VARCHAR(64) UNIQUE NOT NULL,
+                session_hash VARCHAR(16) NOT NULL,
+                os VARCHAR(50) DEFAULT 'Desconocido',
+                browser VARCHAR(50) DEFAULT 'Desconocido',
+                screen_resolution VARCHAR(30) DEFAULT 'Desconocido',
+                timezone VARCHAR(100) DEFAULT 'UTC',
+                language VARCHAR(20) DEFAULT 'es',
+                referrer VARCHAR(500) DEFAULT '',
+                referrer_type VARCHAR(50) DEFAULT 'Directo',
+                started_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                last_active_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                files_created INT DEFAULT 0,
+                files_opened INT DEFAULT 0,
+                files_deleted INT DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_telemetry_sessions_last_active ON telemetry_sessions(last_active_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_telemetry_sessions_session_id ON telemetry_sessions(session_id);
 
             CREATE INDEX IF NOT EXISTS idx_fs_user_parent_type_name ON filesystem_nodes (user_id, parent_id, type, name);
             CREATE INDEX IF NOT EXISTS idx_fs_path_gist ON filesystem_nodes USING GIST (path);
