@@ -169,13 +169,12 @@ onUnmounted(() => {
         <span class="apps-count">{{ filteredApps.length }} disponibles</span>
       </div>
 
-      <!-- Cuadrícula de aplicaciones estilo Windows 11 -->
+      <!-- Cuadrícula de aplicaciones estilo Windows 11 (Mismo tamaño, solo icono y nombre) -->
       <div class="apps-grid">
         <div
           v-for="app in filteredApps"
           :key="app.id"
           class="app-card"
-          :title="`${app.name} — ${app.description}`"
           @click="launchApp(app.id)"
         >
           <div class="app-icon-wrap">
@@ -339,10 +338,11 @@ onUnmounted(() => {
 .apps-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px 8px;
+  gap: 10px;
   padding: 4px 0;
 }
 
+/* Cada tarjeta tiene exactamente las mismas dimensiones fijas y centrado */
 .app-card {
   display: flex;
   flex-direction: column;
@@ -350,50 +350,51 @@ onUnmounted(() => {
   justify-content: center;
   text-align: center;
   gap: 8px;
-  padding: 12px 6px;
+  width: 100%;
+  height: 96px;
+  box-sizing: border-box;
+  padding: 10px 4px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   cursor: pointer;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app-card:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(56, 189, 248, 0.35);
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
 }
 
 .app-icon-wrap {
-  width: 50px;
-  height: 50px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform 0.15s ease;
 }
 
 .app-card:hover .app-icon-wrap {
-  transform: scale(1.08);
-  background: rgba(56, 189, 248, 0.12);
+  transform: scale(1.1);
 }
 
 .app-icon-img {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   object-fit: contain;
   filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
 }
 
 .app-title {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
   color: #f1f5f9;
-  line-height: 1.25;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
