@@ -10,6 +10,7 @@ import OpicsWindow from '@/components/apps/opics/OpicsWindow.vue';
 import OpdfWindow from '@/components/apps/opdf/OpdfWindow.vue';
 import OpaintWindow from '@/components/apps/opaint/OpaintWindow.vue';
 import OmonitorWindow from '@/components/apps/omonitor/OmonitorWindow.vue';
+import OplannerWindow from '@/components/apps/oplanner/OplannerWindow.vue';
 import oxplorerSvg from '@/assets/oxplorer.svg';
 import onotesSvg from '@/assets/onotes.svg';
 import osheetsSvg from '@/assets/osheets.svg';
@@ -17,6 +18,7 @@ import opicsSvg from '@/assets/opics.svg';
 import opdfSvg from '@/assets/opdf.svg';
 import opaintSvg from '@/assets/opaint.svg';
 import omonitorSvg from '@/assets/omonitor.svg';
+import oplannerSvg from '@/assets/oplanner.svg';
 import SecurityModal from '@/components/common/SecurityModal.vue';
 
 const winStore = useWindowStore();
@@ -35,7 +37,7 @@ interface AppShortcut {
   icon: string;
   x: number;
   y: number;
-  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf' | 'opaint' | 'omonitor';
+  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf' | 'opaint' | 'omonitor' | 'oplanner';
 }
 
 const appShortcuts = ref<AppShortcut[]>([
@@ -46,6 +48,7 @@ const appShortcuts = ref<AppShortcut[]>([
   { id: 'app_opdf', name: 'Opdf', icon: opdfSvg, x: 24, y: 408, windowId: 'opdf' },
   { id: 'app_opaint', name: 'Opaint', icon: opaintSvg, x: 24, y: 504, windowId: 'opaint' },
   { id: 'app_omonitor', name: 'Omonitor', icon: omonitorSvg, x: 24, y: 600, windowId: 'omonitor' },
+  { id: 'app_oplanner', name: 'Oplanner', icon: oplannerSvg, x: 24, y: 696, windowId: 'oplanner' },
 ]);
 
 // Control de arrastre y estado de colisión en tiempo real
@@ -330,6 +333,8 @@ function handleAppShortcutDoubleClick(app: AppShortcut) {
     winStore.openWindow('opaint', { isNew: true });
   } else if (app.windowId === 'omonitor') {
     winStore.openWindow('omonitor');
+  } else if (app.windowId === 'oplanner') {
+    winStore.openWindow('oplanner');
   } else {
     winStore.openWindow(app.windowId);
   }
@@ -406,6 +411,20 @@ function handleCreatePaint() {
         name: paint.name,
         content: paint.content,
         isNew: true,
+      });
+    }
+  });
+  closeAllMenus();
+}
+
+function handleCreatePlanner() {
+  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  desktopStore.createPlannerFile('Nuevo Proyecto.oplanner', '', freePos.x, freePos.y).then((planner) => {
+    if (planner) {
+      winStore.openWindow('oplanner', {
+        fileId: planner.id,
+        name: planner.name,
+        content: planner.content,
       });
     }
   });
@@ -576,6 +595,15 @@ function handleItemDoubleClick(item: DesktopItem) {
 
   if (ext === 'OPAINT') {
     winStore.openWindow('opaint', {
+      fileId: item.id,
+      name: item.name,
+      content: item.content,
+    });
+    return;
+  }
+
+  if (ext === 'OPLANNER') {
+    winStore.openWindow('oplanner', {
       fileId: item.id,
       name: item.name,
       content: item.content,
@@ -760,6 +788,12 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
           </svg>
         </div>
       </div>
+      <img
+        v-else-if="item.name.toLowerCase().endsWith('.oplanner')"
+        :src="oplannerSvg"
+        alt="Oplanner"
+        class="shortcut-icon"
+      />
       <svg v-else class="file-icon" viewBox="0 0 24 24" fill="none" stroke="#FBBC05" stroke-width="2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
         <polyline points="14 2 14 8 20 8"></polyline>
@@ -807,6 +841,9 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       </button>
       <button class="context-item" @click="handleCreatePaint">
         🎨 Nuevo Dibujo (Opaint)
+      </button>
+      <button class="context-item" @click="handleCreatePlanner">
+        📋 Nuevo Proyecto (Oplanner)
       </button>
       <button class="context-item" @click="handleOpenOpics">
         🖼️ Galería de Fotos (Opics)
@@ -866,6 +903,7 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
     <OpdfWindow v-if="winStore.windows['opdf']?.isOpen" />
     <OpaintWindow v-if="winStore.windows['opaint']?.isOpen" />
     <OmonitorWindow v-if="winStore.windows['omonitor']?.isOpen" />
+    <OplannerWindow v-if="winStore.windows['oplanner']?.isOpen" />
   </main>
 </template>
 

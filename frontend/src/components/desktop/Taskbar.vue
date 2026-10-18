@@ -8,6 +8,7 @@ import opicsSvg from '@/assets/opics.svg';
 import opdfSvg from '@/assets/opdf.svg';
 import opaintSvg from '@/assets/opaint.svg';
 import omonitorSvg from '@/assets/omonitor.svg';
+import oplannerSvg from '@/assets/oplanner.svg';
 import { useWindowStore } from '@/stores/windowStore';
 
 const winStore = useWindowStore();
@@ -71,6 +72,8 @@ function getWindowIcon(id: string): string {
       return opaintSvg;
     case 'omonitor':
       return omonitorSvg;
+    case 'oplanner':
+      return oplannerSvg;
     default:
       return oxplorerSvg;
   }

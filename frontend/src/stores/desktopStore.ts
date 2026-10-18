@@ -240,6 +240,41 @@ export const useDesktopStore = defineStore('desktop', () => {
         }
     }
 
+    async function createPlannerFile(
+        name = 'Nuevo Proyecto.oplanner',
+        content = '',
+        x = 120,
+        y = 120
+    ): Promise<DesktopItem | null> {
+        try {
+            let plannerName = name.trim();
+            if (!plannerName.toLowerCase().endsWith('.oplanner')) {
+                plannerName += '.oplanner';
+            }
+            const res = await fetch('/api/nodes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: plannerName,
+                    is_directory: false,
+                    content,
+                    parentPath: 'root.desktop',
+                    pos_x: x,
+                    pos_y: y,
+                    mime_type: 'application/json',
+                }),
+            });
+            if (!res.ok) return null;
+            const node: FileNode = await res.json();
+            const newItem = toDesktopItem(node, x, y);
+            items.value.push(newItem);
+            notifyFilesystemChanged();
+            return newItem;
+        } catch {
+            return null;
+        }
+    }
+
     async function createFolder(
         name = 'Nueva Carpeta',
         x = 120,
@@ -376,6 +411,7 @@ export const useDesktopStore = defineStore('desktop', () => {
         createSheet,
         createPdf,
         createPaintFile,
+        createPlannerFile,
         createFolder,
         renameItem,
         deleteItem,

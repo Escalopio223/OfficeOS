@@ -5,6 +5,7 @@ import { useWindowStore } from '@/stores/windowStore';
 import { useDesktopStore } from '@/stores/desktopStore';
 import { useWindowBounds } from '@/composables/useWindowBounds';
 import oxplorerSvg from '@/assets/oxplorer.svg';
+import oplannerSvg from '@/assets/oplanner.svg';
 import SecurityModal from '@/components/common/SecurityModal.vue';
 import WindowControls from '@/components/common/WindowControls.vue';
 
@@ -98,7 +99,17 @@ function handleItemDoubleClick(item: any) {
     return;
   }
 
-  // 4. Archivos de texto y código (.TXT, .MD, .JSON, .LOG, .SQL, .JS, .TS) -> Onotes
+  // 5. Proyectos Oplanner (.OPLANNER) -> Oplanner
+  if (ext === 'OPLANNER') {
+    winStore.openWindow('oplanner', {
+      fileId: item.id,
+      name: item.name,
+      content: item.content,
+    });
+    return;
+  }
+
+  // 6. Archivos de texto y código (.TXT, .MD, .JSON, .LOG, .SQL, .JS, .TS) -> Onotes
   winStore.openWindow('onotes', {
     noteId: item.id,
     name: item.name,
@@ -116,10 +127,10 @@ function handleDownloadSelectedItem() {
 const showNameModal = ref(false);
 const modalTitle = ref('');
 const modalInput = ref('');
-const modalType = ref<'folder' | 'file' | 'note' | 'sheet' | 'pdf' | 'paint'>('folder');
+const modalType = ref<'folder' | 'file' | 'note' | 'sheet' | 'pdf' | 'paint' | 'planner'>('folder');
 const modalInputRef = ref<HTMLInputElement | null>(null);
 
-function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet' | 'pdf' | 'paint') {
+function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet' | 'pdf' | 'paint' | 'planner') {
   closeAllMenus();
   modalType.value = type;
   if (type === 'folder') {
@@ -137,6 +148,9 @@ function openCreateModal(type: 'folder' | 'file' | 'note' | 'sheet' | 'pdf' | 'p
   } else if (type === 'paint') {
     modalTitle.value = 'Nuevo Dibujo (Opaint)';
     modalInput.value = 'Nuevo Dibujo.opaint';
+  } else if (type === 'planner') {
+    modalTitle.value = 'Nuevo Proyecto (Oplanner)';
+    modalInput.value = 'Nuevo Proyecto.oplanner';
   } else {
     modalTitle.value = 'Nuevo Archivo';
     modalInput.value = 'Nuevo Documento.txt';
@@ -235,6 +249,26 @@ async function confirmCreateModal() {
         name: node.name,
         content: node.content,
         isNew: true,
+      });
+    }
+  } else if (modalType.value === 'planner') {
+    let plannerName = name;
+    if (!plannerName.toLowerCase().endsWith('.oplanner')) {
+      plannerName += '.oplanner';
+    }
+    const node = await fs.createNode({
+      name: plannerName,
+      is_directory: false,
+      content: '',
+      parentId: fs.currentFolder?.id,
+      parentPath: fs.currentFolder?.path,
+      mime_type: 'application/json',
+    });
+    if (node) {
+      winStore.openWindow('oplanner', {
+        fileId: node.id,
+        name: node.name,
+        content: node.content,
       });
     }
   } else {
@@ -369,6 +403,11 @@ function handleCreatePdfFromMenu() {
 function handleCreatePaintFromMenu() {
   closeAllMenus();
   openCreateModal('paint');
+}
+
+function handleCreatePlannerFromMenu() {
+  closeAllMenus();
+  openCreateModal('planner');
 }
 
 function handleOpenOpicsFromMenu() {
@@ -607,6 +646,14 @@ onMounted(() => {
           </svg>
           <span>+ PDF</span>
         </button>
+        <button class="action-btn" title="Crear Proyecto Oplanner" @click="openCreateModal('planner')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="5" height="18" rx="1"></rect>
+            <rect x="10" y="3" width="5" height="12" rx="1"></rect>
+            <rect x="17" y="3" width="5" height="15" rx="1"></rect>
+          </svg>
+          <span>+ Proyecto</span>
+        </button>
       </div>
 
       <div class="address-bar">
@@ -677,6 +724,11 @@ onMounted(() => {
             </div>
           </div>
 
+          <div v-else-if="getFileExtension(item.name) === 'OPLANNER'" class="doc-icon-wrapper">
+            <img :src="oplannerSvg" alt="Oplanner" class="file-svg" />
+            <span class="file-badge">PLAN</span>
+          </div>
+
           <div v-else class="doc-icon-wrapper">
             <svg class="file-svg" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.8">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -737,6 +789,9 @@ onMounted(() => {
       </button>
       <button class="context-item" @click="handleCreatePaintFromMenu">
         🎨 Nuevo Dibujo (Opaint)
+      </button>
+      <button class="context-item" @click="handleCreatePlannerFromMenu">
+        📋 Nuevo Proyecto (Oplanner)
       </button>
       <button class="context-item" @click="handleOpenOpicsFromMenu">
         🖼️ Galería de Fotos (Opics)

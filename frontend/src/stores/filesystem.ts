@@ -174,6 +174,7 @@ export const useFileSystemStore = defineStore('filesystem', () => {
         parentPath?: string
         pos_x?: number | null
         pos_y?: number | null
+        mime_type?: string | null
         password?: string
         storage_type?: 'FILE' | 'VIRTUAL'
         storage_path?: string | null
