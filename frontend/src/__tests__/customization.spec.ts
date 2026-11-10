@@ -36,7 +36,6 @@ describe('Customization Suite - Temas, Barra de Tareas, Fondos y Tipografía', (
     expect(store.taskbarColor).toBe('#11111b');
     expect(store.wallpaperId).toBe('oogle');
     expect(store.fontFamilyId).toBe('system');
-    expect(store.gridSnap).toBe(true);
     expect(store.themeClass).toBe('theme-dark');
   });
 
@@ -109,14 +108,12 @@ describe('Customization Suite - Temas, Barra de Tareas, Fondos y Tipografía', (
     store.setTaskbarColor('#064e3b');
     store.setWallpaper('sunset');
     store.setFontFamily('friendly');
-    store.setGridSnap(false);
 
     store.resetDefaults();
     expect(store.theme).toBe('dark');
     expect(store.taskbarColor).toBe('#11111b');
     expect(store.wallpaperId).toBe('oogle');
     expect(store.fontFamilyId).toBe('system');
-    expect(store.gridSnap).toBe(true);
   });
 
   it('7. Integra la ventana de personalización en useWindowStore', () => {

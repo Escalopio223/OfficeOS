@@ -58,3 +58,4 @@ Asimismo, proveer la solución para la inyección o copia de archivos de imagen 
    - Cómo se han creado y cargado las imágenes en Docker.
    - Cómo levantar todo el entorno con un comando.
    - Cómo transferir archivos de imágenes (jpg, png) hacia contenedores si ese fuera el caso alternativo.
+

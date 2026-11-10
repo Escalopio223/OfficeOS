@@ -19,7 +19,7 @@ const winStore = useWindowStore();
 const customStore = useCustomizationStore();
 
 const { x, y, width, height, startDrag, startResize } = useWindowBounds(180, 90, 780, 540);
-const activeTab = ref<'theme' | 'wallpaper' | 'taskbar' | 'typography' | 'grid'>('wallpaper');
+const activeTab = ref<'theme' | 'wallpaper' | 'taskbar' | 'typography'>('wallpaper');
 
 function selectWallpaper(id: string) {
   customStore.setWallpaper(id);
@@ -35,10 +35,6 @@ function selectTaskbarColor(color: string) {
 
 function selectFont(id: string) {
   customStore.setFontFamily(id);
-}
-
-function toggleGridSnap() {
-  customStore.setGridSnap(!customStore.gridSnap);
 }
 </script>
 
@@ -106,15 +102,6 @@ function toggleGridSnap() {
         >
           <span class="nav-icon">🔤</span>
           <span>Tipografía</span>
-        </button>
-
-        <button
-          class="sidebar-nav-item"
-          :class="{ active: activeTab === 'grid' }"
-          @click="activeTab = 'grid'"
-        >
-          <span class="nav-icon">📐</span>
-          <span>Cuadrícula Escritorio</span>
         </button>
 
         <div class="sidebar-spacer"></div>
@@ -317,49 +304,6 @@ function toggleGridSnap() {
               <div class="font-preview-text" :style="{ fontFamily: font.fontFamily }">
                 OfficeOS: Sistema operativo inteligente y fluido • ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 1234567890
               </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- 5. Pestaña: CUADRÍCULA DE ESCRITORIO -->
-        <section v-else-if="activeTab === 'grid'" class="tab-section">
-          <div class="section-title-wrap">
-            <h2 class="section-heading">Cuadrícula del Escritorio estilo Windows</h2>
-            <p class="section-subtitle">
-              Controla el alineamiento magnético de iconos y carpetas para mantener un escritorio siempre ordenado.
-            </p>
-          </div>
-
-          <div class="grid-settings-card">
-            <div class="grid-setting-row">
-              <div class="grid-info">
-                <span class="grid-title">Alinear iconos a la cuadrícula (Snap to Grid)</span>
-                <span class="grid-desc">
-                  Al arrastrar iconos en el escritorio, se acoplan automáticamente a celdas proporcionales (92x96 px) como en Windows.
-                </span>
-              </div>
-              <button
-                class="toggle-switch-btn"
-                :class="{ active: customStore.gridSnap }"
-                @click="toggleGridSnap"
-              >
-                <div class="toggle-switch-slider"></div>
-              </button>
-            </div>
-
-            <div class="grid-divider"></div>
-
-            <div class="grid-reorganize-section">
-              <div class="grid-info">
-                <span class="grid-title">Reorganizar iconos del escritorio</span>
-                <span class="grid-desc">
-                  Ordena automáticamente todos los accesos directos y archivos del escritorio por columnas sin solapamientos.
-                </span>
-              </div>
-              <button class="reorganize-btn" @click="emit('reorganize-grid')">
-                <span class="btn-icon">📐</span>
-                <span>Auto-organizar ahora</span>
-              </button>
             </div>
           </div>
         </section>
@@ -959,98 +903,6 @@ function toggleGridSnap() {
   border-radius: 6px;
   margin-top: 4px;
   border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-/* Pestaña: Cuadrícula */
-.grid-settings-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.grid-setting-row,
-.grid-reorganize-section {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.grid-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.grid-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #f1f5f9;
-}
-
-.grid-desc {
-  font-size: 11px;
-  color: #64748b;
-  line-height: 1.4;
-  max-width: 420px;
-}
-
-.toggle-switch-btn {
-  width: 48px;
-  height: 26px;
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.15);
-  border: none;
-  cursor: pointer;
-  position: relative;
-  padding: 3px;
-  transition: background 0.2s ease;
-}
-
-.toggle-switch-btn.active {
-  background: #0284c7;
-}
-
-.toggle-switch-slider {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #ffffff;
-  transition: transform 0.2s ease;
-}
-
-.toggle-switch-btn.active .toggle-switch-slider {
-  transform: translateX(22px);
-}
-
-.grid-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.reorganize-btn {
-  background: rgba(56, 189, 248, 0.15);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  color: #38bdf8;
-  padding: 9px 14px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.reorganize-btn:hover {
-  background: rgba(56, 189, 248, 0.25);
-  transform: translateY(-1px);
 }
 
 .window-resize-handle {

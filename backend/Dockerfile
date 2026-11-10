@@ -21,3 +21,4 @@ ENV REDIS_HOST=redis
 ENV REDIS_PORT=6379
 
 CMD ["npm", "run", "dev"]
+

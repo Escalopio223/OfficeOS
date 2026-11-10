@@ -160,7 +160,6 @@ export const useCustomizationStore = defineStore('customization', () => {
   const taskbarColor = ref<string>(saved?.taskbarColor || '#11111b');
   const wallpaperId = ref<string>(saved?.wallpaperId || 'oogle');
   const fontFamilyId = ref<string>(saved?.fontFamilyId || 'system');
-  const gridSnap = ref<boolean>(saved?.gridSnap !== undefined ? Boolean(saved.gridSnap) : true);
 
   const activeWallpaper = computed(() => {
     return WALLPAPER_PRESETS.find((w) => w.id === wallpaperId.value) || WALLPAPER_PRESETS[0]!;
@@ -204,7 +203,6 @@ export const useCustomizationStore = defineStore('customization', () => {
       taskbarColor: taskbarColor.value,
       wallpaperId: wallpaperId.value,
       fontFamilyId: fontFamilyId.value,
-      gridSnap: gridSnap.value,
     });
   }
 
@@ -242,17 +240,11 @@ export const useCustomizationStore = defineStore('customization', () => {
     }
   }
 
-  function setGridSnap(snap: boolean) {
-    gridSnap.value = snap;
-    persist();
-  }
-
   function resetDefaults() {
     theme.value = 'dark';
     taskbarColor.value = '#11111b';
     wallpaperId.value = 'oogle';
     fontFamilyId.value = 'system';
-    gridSnap.value = true;
     persist();
   }
 
@@ -261,7 +253,6 @@ export const useCustomizationStore = defineStore('customization', () => {
     taskbarColor,
     wallpaperId,
     fontFamilyId,
-    gridSnap,
     activeWallpaper,
     activeFont,
     wallpaperStyle,
@@ -272,7 +263,6 @@ export const useCustomizationStore = defineStore('customization', () => {
     setTaskbarColor,
     setWallpaper,
     setFontFamily,
-    setGridSnap,
     resetDefaults,
   };
 });
