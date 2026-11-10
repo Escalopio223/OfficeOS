@@ -28,3 +28,4 @@ Eliminar por completo cualquier posibilidad de que un archivo o aplicación del 
 2. **Actualizar `frontend/src/components/desktop/DesktopWorkspace.vue`** para usar `dragPreviewPos` durante el arrastre y prohibir mutaciones de coordenadas fuera de la cuadrícula en `desktopStore.items` y `appShortcuts`.
 3. **Ejecutar los tests unitarios de Vitest** para verificar que toda la suite pasa sin errores.
 4. **Hacer commit de los cambios en la rama `fix/secure-folder`**.
+
