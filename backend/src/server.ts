@@ -48,20 +48,20 @@ app.addHook('onResponse', async (request, reply) => {
     telemetryEvents.emit('log', logEntry);
 });
 
-// Pool de conexiones a PostgreSQL (Docker puerto 5433)
+// Pool de conexiones a PostgreSQL (Docker puerto 5433 en host o 5432 en red docker)
 const pool = new Pool({
-    host: '127.0.0.1',
-    port: 5433,
-    user: 'oogle_user',
-    password: 'oogle_pass',
-    database: 'oogleos_db',
+    host: process.env.DB_HOST || '127.0.0.1',
+    port: parseInt(process.env.DB_PORT || '5433', 10),
+    user: process.env.DB_USER || 'oogle_user',
+    password: process.env.DB_PASSWORD || 'oogle_pass',
+    database: process.env.DB_NAME || 'oogleos_db',
     max: 20,
 });
 
 // Cliente de Redis (Docker puerto 6379)
 const redis = new Redis({
-    host: '127.0.0.1',
-    port: 6379,
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
     lazyConnect: true,
 });
 

@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   postgres:
     image: postgres:16-alpine
@@ -12,7 +11,7 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./docker/postgres/init/01_init.sql:/docker-entrypoint-initdb.d/01_init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U oogle_user -d oogleos_db"]
       interval: 5s
@@ -27,6 +26,41 @@ services:
       - "6379:6379"
     volumes:
       - redisdata:/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: officeos-backend:latest
+    container_name: oogleos-backend
+    restart: always
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: oogle_user
+      DB_PASSWORD: oogle_pass
+      DB_NAME: oogleos_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: officeos-frontend:latest
+    container_name: oogleos-frontend
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
 
 volumes:
   pgdata:
