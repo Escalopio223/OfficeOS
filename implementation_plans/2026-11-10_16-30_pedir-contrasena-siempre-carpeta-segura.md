@@ -49,3 +49,4 @@ Garantizar que cada vez que un usuario intente acceder a una carpeta protegida c
    - Verificar que todos los tests pasen exitosamente.
 8. **Realizar commit de los cambios en la rama `fix/secure-folder`:**
    - Registrar los cambios en git.
+

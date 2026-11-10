@@ -7,6 +7,7 @@ import {
   FONT_PRESETS,
 } from '@/stores/customizationStore';
 import { useWindowStore } from '@/stores/windowStore';
+import { useDesktopStore } from '@/stores/desktopStore';
 
 describe('Customization Suite - Temas, Barra de Tareas, Fondos y Tipografía', () => {
   beforeEach(() => {
@@ -173,5 +174,27 @@ describe('Customization Suite - Temas, Barra de Tareas, Fondos y Tipografía', (
     expect(posCol1Row2.row).toBe(2);
     expect(posCol1Row2.x).toBe(112);
     expect(posCol1Row2.y).toBe(212);
+  });
+
+  it('9. Impide que los archivos compartan coordenada con aplicaciones del sistema o entre sí', () => {
+    const desktopStore = useDesktopStore();
+
+    // Intentar colocar un archivo sobre Oxplorer (20, 20) debe reubicarlo a una celda libre
+    const pos1 = desktopStore.resolveUniqueGridPosition(24, 24, []);
+    expect(pos1.x === 20 && pos1.y === 20).toBe(false);
+
+    // Intentar colocar un archivo sobre Personalización (112, 20) debe reubicarlo a una celda libre
+    const pos2 = desktopStore.resolveUniqueGridPosition(118, 24, []);
+    expect(pos2.x === 112 && pos2.y === 20).toBe(false);
+
+    // Dos archivos que piden la misma celda libre (112, 116) reciben coordenadas distintas
+    const firstFilePos = desktopStore.resolveUniqueGridPosition(112, 116, []);
+    expect(firstFilePos).toEqual({ x: 112, y: 116 });
+
+    const mockExisting = [
+      { id: 'file-1', name: 'Uno.txt', x: firstFilePos.x, y: firstFilePos.y, pos_x: firstFilePos.x, pos_y: firstFilePos.y } as any,
+    ];
+    const secondFilePos = desktopStore.resolveUniqueGridPosition(112, 116, mockExisting);
+    expect(secondFilePos).not.toEqual(firstFilePos);
   });
 });

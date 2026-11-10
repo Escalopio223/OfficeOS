@@ -215,6 +215,7 @@ async function reorganizeGrid() {
   for (const app of appShortcuts.value) {
     app.x = GRID_OFFSET_X + col * GRID_CELL_WIDTH;
     app.y = GRID_OFFSET_Y + row * GRID_CELL_HEIGHT;
+    desktopStore.setSystemAppPosition(app.id, app.x, app.y);
     row++;
     if (row >= maxRows) {
       row = 0;
@@ -362,6 +363,7 @@ async function onGlobalMouseUp() {
       const freePos = findFreeGridSlotNear(rawPos.col, rawPos.row, appTarget.id);
       appTarget.x = freePos.x;
       appTarget.y = freePos.y;
+      desktopStore.setSystemAppPosition(appTarget.id, freePos.x, freePos.y);
     } else {
       const targetItem = desktopStore.items.find((i) => i.id === id);
       if (targetItem) {
