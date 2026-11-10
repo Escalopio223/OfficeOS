@@ -56,3 +56,4 @@
 5. **Actualización de pruebas (`customization.spec.ts`):**
    - Ejecutar `vitest` y confirmar que todos los tests pasan al 100%.
 6. **Confirmación y commit en git.**
+
