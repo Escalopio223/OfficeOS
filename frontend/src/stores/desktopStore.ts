@@ -78,7 +78,7 @@ export const useDesktopStore = defineStore('desktop', () => {
             const mapped: DesktopItem[] = [];
             const needsPositionSaving: { id: string; x: number; y: number }[] = [];
 
-            for (const node of data.nodes) {
+            for (const node of (data.nodes || [])) {
                 if (node.pos_x === null || node.pos_x === undefined || node.pos_y === null || node.pos_y === undefined) {
                     const freeSlot = findFreeGridSlot(mapped);
                     const item = toDesktopItem(node, freeSlot.x, freeSlot.y);
@@ -298,10 +298,6 @@ export const useDesktopStore = defineStore('desktop', () => {
             const node: FileNode = await res.json();
             const newItem = toDesktopItem(node, x, y);
             items.value.push(newItem);
-            if (password) {
-                const fsStore = useFileSystemStore();
-                fsStore.unlockFolder(node.id);
-            }
             notifyFilesystemChanged();
             return newItem;
         } catch {

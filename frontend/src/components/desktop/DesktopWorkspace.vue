@@ -626,9 +626,9 @@ async function onSecurityConfirm(payload: { name: string; password: string }) {
 function handleItemDoubleClick(item: DesktopItem) {
   if (isActuallyDragging.value || editingItemId.value === item.id) return;
 
-  // Si es carpeta, verificar si está protegida
+  // Si es carpeta, verificar si está protegida (siempre pide contraseña en cada entrada)
   if (item.is_directory) {
-    if (item.is_protected && !fs.isFolderUnlocked(item.id)) {
+    if (item.is_protected) {
       openUnlockModal(item);
       return;
     }
