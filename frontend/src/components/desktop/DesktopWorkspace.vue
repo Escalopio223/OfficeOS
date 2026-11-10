@@ -352,36 +352,15 @@ function onGlobalMouseMove(e: MouseEvent) {
 }
 
 async function onGlobalMouseUp() {
+  // Detener inmediatamente los listeners antes de cualquier await para evitar condiciones de carrera
+  window.removeEventListener('mousemove', onGlobalMouseMove);
+  window.removeEventListener('mouseup', onGlobalMouseUp);
   document.querySelectorAll('.is-drop-hover').forEach((el) => el.classList.remove('is-drop-hover'));
 
-  if (activeDragId.value && isActuallyDragging.value) {
-    const id = activeDragId.value;
-
-    const appTarget = appShortcuts.value.find((a) => a.id === id);
-    if (appTarget) {
-      const rawPos = snapToGridCoords(appTarget.x, appTarget.y);
-      const freePos = findFreeGridSlotNear(rawPos.col, rawPos.row, appTarget.id);
-      appTarget.x = freePos.x;
-      appTarget.y = freePos.y;
-      desktopStore.setSystemAppPosition(appTarget.id, freePos.x, freePos.y);
-    } else {
-      const targetItem = desktopStore.items.find((i) => i.id === id);
-      if (targetItem) {
-        if (hoveredDropFolder.value) {
-          const dropTarget = hoveredDropFolder.value;
-          if (dropTarget.type === 'oxplorer-node' || dropTarget.type === 'oxplorer-content') {
-            await fs.moveNode(id, dropTarget.id);
-          } else {
-            await desktopStore.moveToFolder(id, dropTarget.id);
-          }
-        } else {
-          const rawPos = snapToGridCoords(targetItem.x ?? 20, targetItem.y ?? 20);
-          const freePos = findFreeGridSlotNear(rawPos.col, rawPos.row, id);
-          await desktopStore.updatePosition(id, freePos.x, freePos.y);
-        }
-      }
-    }
-  }
+  const id = activeDragId.value;
+  const wasDragging = isActuallyDragging.value;
+  const dropFolder = hoveredDropFolder.value;
+  const originSnap = snapToGridCoords(initialTargetX, initialTargetY);
 
   activeDragId.value = null;
   isActuallyDragging.value = false;
@@ -389,8 +368,56 @@ async function onGlobalMouseUp() {
   hoveredDropFolder.value = null;
   hoverGridSlot.value = null;
   isCurrentlyColliding.value = false;
-  window.removeEventListener('mousemove', onGlobalMouseMove);
-  window.removeEventListener('mouseup', onGlobalMouseUp);
+
+  if (id && wasDragging) {
+    const appTarget = appShortcuts.value.find((a) => a.id === id);
+    if (appTarget) {
+      const rawPos = snapToGridCoords(appTarget.x, appTarget.y);
+      // Si la celda destino está ocupada (en rojo), no permitir colocarlo ahí: devolver a su celda de origen
+      if (isGridSlotOccupied(rawPos.col, rawPos.row, appTarget.id)) {
+        const safeOrigin = isGridSlotOccupied(originSnap.col, originSnap.row, appTarget.id)
+          ? findFreeGridSlotNear(originSnap.col, originSnap.row, appTarget.id)
+          : originSnap;
+        appTarget.x = safeOrigin.x;
+        appTarget.y = safeOrigin.y;
+        desktopStore.setSystemAppPosition(appTarget.id, safeOrigin.x, safeOrigin.y);
+      } else {
+        appTarget.x = rawPos.x;
+        appTarget.y = rawPos.y;
+        desktopStore.setSystemAppPosition(appTarget.id, rawPos.x, rawPos.y);
+      }
+    } else {
+      const targetItem = desktopStore.items.find((i) => i.id === id);
+      if (targetItem) {
+        if (dropFolder) {
+          if (dropFolder.type === 'oxplorer-node' || dropFolder.type === 'oxplorer-content') {
+            await fs.moveNode(id, dropFolder.id);
+          } else {
+            await desktopStore.moveToFolder(id, dropFolder.id);
+          }
+        } else {
+          const rawPos = snapToGridCoords(targetItem.x ?? 20, targetItem.y ?? 20);
+          // Si la celda destino está ocupada (en rojo), rechazar colocación y devolver a su celda original
+          if (isGridSlotOccupied(rawPos.col, rawPos.row, id)) {
+            const safeOrigin = isGridSlotOccupied(originSnap.col, originSnap.row, id)
+              ? findFreeGridSlotNear(originSnap.col, originSnap.row, id)
+              : originSnap;
+            targetItem.x = safeOrigin.x;
+            targetItem.y = safeOrigin.y;
+            targetItem.pos_x = safeOrigin.x;
+            targetItem.pos_y = safeOrigin.y;
+            await desktopStore.updatePosition(id, safeOrigin.x, safeOrigin.y);
+          } else {
+            targetItem.x = rawPos.x;
+            targetItem.y = rawPos.y;
+            targetItem.pos_x = rawPos.x;
+            targetItem.pos_y = rawPos.y;
+            await desktopStore.updatePosition(id, rawPos.x, rawPos.y);
+          }
+        }
+      }
+    }
+  }
 }
 
 function handleAppShortcutDoubleClick(app: AppShortcut) {
@@ -808,6 +835,7 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
     <div
       v-if="isActuallyDragging && hoverGridSlot && !hoveredDropFolder"
       class="grid-ghost-cell"
+      :class="{ 'is-invalid': isCurrentlyColliding }"
       :style="{ left: `${hoverGridSlot.x}px`, top: `${hoverGridSlot.y}px` }"
     ></div>
     <!-- Accesos Directos de Aplicaciones del Sistema (Oxplorer, Onotes, Osheets, Opics) -->
@@ -821,6 +849,7 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       }"
       :style="{ left: `${app.x}px`, top: `${app.y}px` }"
       @mousedown="startItemDrag($event, app.id, app.x, app.y)"
+      @dragstart.prevent
       @dblclick="handleAppShortcutDoubleClick(app)"
     >
       <img :src="app.icon" :alt="app.name" class="shortcut-icon" draggable="false" />
@@ -841,6 +870,7 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       :data-is-dir="item.is_directory ? 'true' : 'false'"
       :style="{ left: `${item.x ?? 24}px`, top: `${item.y ?? 120}px` }"
       @mousedown="startItemDrag($event, item.id, item.x ?? 24, item.y ?? 120)"
+      @dragstart.prevent
       @dblclick="handleItemDoubleClick(item)"
       @contextmenu="onItemRightClick($event, item)"
       @dragover.prevent
@@ -1022,6 +1052,12 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
   pointer-events: none;
   z-index: 5;
   transition: all 0.08s ease-out;
+}
+
+.grid-ghost-cell.is-invalid {
+  border-color: rgba(248, 113, 113, 0.85);
+  background: rgba(239, 68, 68, 0.16);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.35);
 }
 
 .shortcut-item {

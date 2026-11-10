@@ -197,4 +197,22 @@ describe('Customization Suite - Temas, Barra de Tareas, Fondos y Tipografía', (
     const secondFilePos = desktopStore.resolveUniqueGridPosition(112, 116, mockExisting);
     expect(secondFilePos).not.toEqual(firstFilePos);
   });
+
+  it('10. Detecta celdas ocupadas (en rojo) y solo permite soltar en cuadrículas libres', () => {
+    const desktopStore = useDesktopStore();
+    const existingItems = [
+      { id: 'resumen-csv', name: 'Resumen.csv', x: 112, y: 404, pos_x: 112, pos_y: 404 } as any,
+      { id: 'guia-pdf', name: 'Guia.pdf', x: 112, y: 500, pos_x: 112, pos_y: 500 } as any,
+    ];
+
+    // Intentar soltar 'guia-pdf' en (66, 445) -> snap es (112, 404) que está ocupada por 'resumen-csv'
+    const snappedDrop = desktopStore.snapToGrid(66, 445);
+    expect(snappedDrop.x).toBe(112);
+    expect(snappedDrop.y).toBe(404);
+    expect(desktopStore.isCellOccupied(snappedDrop.x, snappedDrop.y, existingItems, 'guia-pdf')).toBe(true);
+
+    // En cambio, soltar en una celda libre como (204, 404) sí está permitido
+    const freeDrop = desktopStore.snapToGrid(204, 404);
+    expect(desktopStore.isCellOccupied(freeDrop.x, freeDrop.y, existingItems, 'guia-pdf')).toBe(false);
+  });
 });

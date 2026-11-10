@@ -36,3 +36,4 @@ Garantizar que cada aplicación del sistema y cada archivo o carpeta en el Escri
 3. **Actualizar `frontend/src/components/desktop/DesktopWorkspace.vue`** para mantener sincronizadas las coordenadas de `appShortcuts` con `desktopStore`.
 4. **Actualizar `backend/scripts/seed.ts`** con las coordenadas alineadas a la cuadrícula para los archivos de muestra del escritorio y actualizar los registros actuales en PostgreSQL + limpiar caché de Redis.
 5. **Añadir y ejecutar tests unitarios en Vitest** para verificar que no existan colisiones de coordenadas.
+
