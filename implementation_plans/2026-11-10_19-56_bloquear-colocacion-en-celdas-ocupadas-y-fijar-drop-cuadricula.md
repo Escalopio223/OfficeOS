@@ -32,3 +32,4 @@ Impedir que un archivo o aplicación arrastrado en el escritorio pueda colocarse
    - Prevenir `dragstart` nativo en `.shortcut-item` y reflejar el estado inválido en `.grid-ghost-cell`.
 3. **Normalizar coordenadas en PostgreSQL y limpiar Redis** por si algún archivo quedó en una coordenada intermedia tras la prueba anterior.
 4. **Añadir y ejecutar tests unitarios en Vitest** validando el comportamiento.
+
