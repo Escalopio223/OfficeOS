@@ -46,10 +46,12 @@ export const useOmonitorStore = defineStore('omonitor', () => {
 
   // Inicializar ID de sesión persistente (sin IP)
   function initSession() {
-    let storedId = localStorage.getItem(SESSION_STORAGE_KEY);
+    let storedId = typeof localStorage !== 'undefined' ? localStorage.getItem(SESSION_STORAGE_KEY) : null;
     if (!storedId) {
       storedId = 'sess_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-      localStorage.setItem(SESSION_STORAGE_KEY, storedId);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(SESSION_STORAGE_KEY, storedId);
+      }
     }
     sessionId.value = storedId;
   }

@@ -9,7 +9,19 @@ import OmonitorWindow from '@/components/apps/omonitor/OmonitorWindow.vue';
 describe('Omonitor Store & Components', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
-    localStorage.clear();
+    const mockStorage: Record<string, string> = {};
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn((key: string) => mockStorage[key] || null),
+      setItem: vi.fn((key: string, val: string) => {
+        mockStorage[key] = val;
+      }),
+      removeItem: vi.fn((key: string) => {
+        delete mockStorage[key];
+      }),
+      clear: vi.fn(() => {
+        for (const k of Object.keys(mockStorage)) delete mockStorage[k];
+      }),
+    });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ sessions: [], summary: {} }),

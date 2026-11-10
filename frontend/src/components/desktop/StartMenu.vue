@@ -10,6 +10,7 @@ import opdfSvg from '@/assets/opdf.svg';
 import opaintSvg from '@/assets/opaint.svg';
 import omonitorSvg from '@/assets/omonitor.svg';
 import oplannerSvg from '@/assets/oplanner.svg';
+import customizationSvg from '@/assets/customization.svg';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -85,6 +86,13 @@ const apps: AppItem[] = [
     category: 'Multimedia',
     description: 'Galería de fotos e imágenes',
     icon: opicsSvg,
+  },
+  {
+    id: 'customization',
+    name: 'Personalización',
+    category: 'Sistema',
+    description: 'Temas, colores de barra, fondos y fuentes',
+    icon: customizationSvg,
   },
 ];
 

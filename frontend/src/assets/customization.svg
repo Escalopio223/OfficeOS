@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="customizationGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#818cf8" />
+      <stop offset="100%" stop-color="#c084fc" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#818cf8" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Base palette plate -->
+  <path d="M24 4C12.95 4 4 12.95 4 24c0 10.5 8.05 19.1 18.3 19.92 1.35.11 2.47-.98 2.47-2.33v-2.02c0-1.74 1.34-3.19 3.08-3.27 4.14-.19 7.42-3.6 7.42-7.75 0-.29-.02-.57-.05-.85.76.2 1.55.3 2.38.3 4.64 0 8.4-3.76 8.4-8.4C46 11.2 36.14 4 24 4z" fill="url(#customizationGrad)" filter="url(#glow)"/>
+  
+  <!-- Swatch dots (Color wells) -->
+  <circle cx="15" cy="16" r="3.5" fill="#f87171" stroke="#ffffff" stroke-width="1.5" />
+  <circle cx="26" cy="13" r="3.5" fill="#fbbf24" stroke="#ffffff" stroke-width="1.5" />
+  <circle cx="34" cy="20" r="3.5" fill="#34d399" stroke="#ffffff" stroke-width="1.5" />
+  <circle cx="16" cy="27" r="3.5" fill="#60a5fa" stroke="#ffffff" stroke-width="1.5" />
+  
+  <!-- Thumb Hole -->
+  <ellipse cx="28" cy="33" rx="4" ry="4" fill="#0b0f19" opacity="0.85" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"/>
+</svg>

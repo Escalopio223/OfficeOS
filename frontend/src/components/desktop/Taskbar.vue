@@ -9,10 +9,13 @@ import opdfSvg from '@/assets/opdf.svg';
 import opaintSvg from '@/assets/opaint.svg';
 import omonitorSvg from '@/assets/omonitor.svg';
 import oplannerSvg from '@/assets/oplanner.svg';
+import customizationSvg from '@/assets/customization.svg';
 import { useWindowStore } from '@/stores/windowStore';
+import { useCustomizationStore } from '@/stores/customizationStore';
 import StartMenu from '@/components/desktop/StartMenu.vue';
 
 const winStore = useWindowStore();
+const customStore = useCustomizationStore();
 
 defineEmits<{
   (e: 'toggle-start'): void;
@@ -21,6 +24,13 @@ defineEmits<{
 const startMenuOpen = ref(false);
 const contextMenuVisible = ref(false);
 const contextMenuPos = ref({ x: 0, y: 0 });
+const currentTime = ref('');
+let clockInterval: any = null;
+
+function updateClock() {
+  const now = new Date();
+  currentTime.value = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 function toggleStartMenu(e: MouseEvent) {
   e.stopPropagation();
@@ -34,7 +44,7 @@ function onTaskbarContextMenu(e: MouseEvent) {
   startMenuOpen.value = false;
   contextMenuPos.value = {
     x: Math.min(e.clientX, window.innerWidth - 240),
-    y: Math.max(10, window.innerHeight - 130),
+    y: Math.max(10, window.innerHeight - 170),
   };
   contextMenuVisible.value = true;
 }
@@ -45,6 +55,11 @@ function closeContextMenu() {
 
 function openTaskManager() {
   winStore.openWindow('omonitor');
+  closeContextMenu();
+}
+
+function openCustomization() {
+  winStore.openWindow('customization');
   closeContextMenu();
 }
 
@@ -66,10 +81,13 @@ function handleGlobalClick(e: MouseEvent) {
 }
 
 onMounted(() => {
+  updateClock();
+  clockInterval = setInterval(updateClock, 1000);
   window.addEventListener('click', handleGlobalClick);
 });
 
 onUnmounted(() => {
+  if (clockInterval) clearInterval(clockInterval);
   window.removeEventListener('click', handleGlobalClick);
 });
 
@@ -91,6 +109,8 @@ function getWindowIcon(id: string): string {
       return omonitorSvg;
     case 'oplanner':
       return oplannerSvg;
+    case 'customization':
+      return customizationSvg;
     default:
       return oxplorerSvg;
   }
@@ -98,7 +118,11 @@ function getWindowIcon(id: string): string {
 </script>
 
 <template>
-  <footer class="taskbar" @contextmenu.prevent="onTaskbarContextMenu($event)">
+  <footer
+    class="taskbar"
+    :style="{ backgroundColor: customStore.taskbarColor }"
+    @contextmenu.prevent="onTaskbarContextMenu($event)"
+  >
     <div class="taskbar-left">
       <button
         class="oogle-start-btn"
@@ -126,7 +150,33 @@ function getWindowIcon(id: string): string {
     </div>
 
     <div class="taskbar-status">
-      <slot name="tray"></slot>
+      <slot name="tray">
+        <div class="tray-actions">
+          <!-- Botón rápido de alternar tema claro / oscuro -->
+          <button
+            class="tray-btn"
+            :title="customStore.theme === 'dark' ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro'"
+            aria-label="Alternar tema claro y oscuro"
+            @click="customStore.toggleTheme"
+          >
+            <span v-if="customStore.theme === 'dark'">🌙</span>
+            <span v-else>☀️</span>
+          </button>
+
+          <!-- Botón rápido de personalización -->
+          <button
+            class="tray-btn"
+            title="Personalización del Sistema"
+            aria-label="Abrir Personalización"
+            @click="winStore.openWindow('customization')"
+          >
+            <img :src="customizationSvg" alt="Personalizar" class="tray-icon" />
+          </button>
+
+          <!-- Reloj de la barra de tareas -->
+          <span class="taskbar-clock">{{ currentTime }}</span>
+        </div>
+      </slot>
     </div>
 
     <!-- Menú de Inicio desplegable estilo Windows -->
@@ -142,6 +192,10 @@ function getWindowIcon(id: string): string {
       :style="{ left: `${contextMenuPos.x}px`, top: `${contextMenuPos.y}px` }"
       @click.stop
     >
+      <button class="menu-action-item" @click="openCustomization">
+        <img :src="customizationSvg" alt="Personalizar" class="menu-icon" />
+        <span>Personalizar escritorio y barra de tareas</span>
+      </button>
       <button class="menu-action-item" @click="openTaskManager">
         <img :src="omonitorSvg" alt="Omonitor" class="menu-icon" />
         <span>Administrador de tareas / Omonitor</span>
@@ -159,7 +213,7 @@ function getWindowIcon(id: string): string {
 .taskbar {
   height: 50px;
   background-color: #11111b;
-  border-top: 1px solid #313244;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -167,6 +221,8 @@ function getWindowIcon(id: string): string {
   color: #a6adc8;
   font-size: 12px;
   user-select: none;
+  transition: background-color 0.25s ease;
+  z-index: 9998;
 }
 
 .taskbar-left {
@@ -245,7 +301,48 @@ function getWindowIcon(id: string): string {
 
 .taskbar-status {
   font-size: 11px;
-  color: #6c7086;
+  color: #a6adc8;
+}
+
+.tray-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tray-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  transition: all 0.15s ease;
+  color: #f1f5f9;
+}
+
+.tray-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.08);
+}
+
+.tray-icon {
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+}
+
+.taskbar-clock {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  letter-spacing: 0.4px;
 }
 
 /* Menú Contextual de la Barra de Tareas */

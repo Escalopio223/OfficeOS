@@ -15,7 +15,7 @@ describe('StartMenu.vue - Menú de Inicio estilo Windows', () => {
 
     expect(wrapper.find('.search-input').exists()).toBe(true);
     const appCards = wrapper.findAll('.app-card');
-    expect(appCards.length).toBe(8);
+    expect(appCards.length).toBe(9);
 
     const text = wrapper.text();
     expect(text).toContain('Oxplorer');
@@ -26,6 +26,7 @@ describe('StartMenu.vue - Menú de Inicio estilo Windows', () => {
     expect(text).toContain('Opaint');
     expect(text).toContain('Opdf');
     expect(text).toContain('Opics');
+    expect(text).toContain('Personalización');
   });
 
   it('filtra las aplicaciones al escribir en el buscador', async () => {
@@ -40,7 +41,7 @@ describe('StartMenu.vue - Menú de Inicio estilo Windows', () => {
 
     // Limpiar búsqueda
     await input.setValue('');
-    expect(wrapper.findAll('.app-card').length).toBe(8);
+    expect(wrapper.findAll('.app-card').length).toBe(9);
   });
 
   it('muestra mensaje de estado vacío cuando no hay coincidencias', async () => {

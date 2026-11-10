@@ -31,26 +31,26 @@ export const useDesktopStore = defineStore('desktop', () => {
         };
     }
 
-    // Calcula una celda libre en la cuadrícula si un nodo se creó desde Oxplorer sin coordenadas
-    function findFreeGridSlot(existingItems: DesktopItem[], startX = 120, startY = 24): { x: number; y: number } {
-        const iconW = 96;
-        const iconH = 100;
-        const maxRows = Math.max(3, Math.floor(((typeof window !== 'undefined' ? window.innerHeight : 800) - 100) / iconH));
+    // Calcula una celda libre en la cuadrícula estilo Windows si un nodo se creó sin coordenadas
+    function findFreeGridSlot(existingItems: DesktopItem[], startX = 112, startY = 20): { x: number; y: number } {
+        const cellW = 92;
+        const cellH = 96;
+        const maxRows = Math.max(3, Math.floor(((typeof window !== 'undefined' ? window.innerHeight : 800) - 70) / cellH));
 
         let col = 0;
         let row = 0;
 
         for (let iteration = 0; iteration < 200; iteration++) {
-            const candidateX = startX + col * iconW;
-            const candidateY = startY + row * iconH;
+            const candidateX = startX + col * cellW;
+            const candidateY = startY + row * cellH;
 
-            // Evitar solapamiento con la columna de apps del sistema (x < 100 y y < 420)
-            const isSystemAppSlot = candidateX < 100 && candidateY < 420;
+            // Evitar solapamiento con la primera columna de aplicaciones del sistema (col 0: x < 112)
+            const isSystemAppSlot = candidateX < 112;
 
             const occupied = isSystemAppSlot || existingItems.some((item) => {
                 return (
-                    Math.abs((item.x ?? 0) - candidateX) < 70 &&
-                    Math.abs((item.y ?? 0) - candidateY) < 70
+                    Math.abs((item.x ?? 0) - candidateX) < 40 &&
+                    Math.abs((item.y ?? 0) - candidateY) < 40
                 );
             });
 

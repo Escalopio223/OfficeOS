@@ -3,6 +3,7 @@ import { ref, nextTick, useTemplateRef } from 'vue';
 import { useWindowStore } from '@/stores/windowStore';
 import { useDesktopStore, type DesktopItem } from '@/stores/desktopStore';
 import { useFileSystemStore, notifyFilesystemChanged } from '@/stores/filesystem';
+import { useCustomizationStore } from '@/stores/customizationStore';
 import OxplorerWindow from '@/components/apps/oxplorer/OxplorerWindow.vue';
 import OnotesWindow from '@/components/apps/onotes/OnotesWindow.vue';
 import OsheetsWindow from '@/components/apps/osheets/OsheetsWindow.vue';
@@ -11,6 +12,7 @@ import OpdfWindow from '@/components/apps/opdf/OpdfWindow.vue';
 import OpaintWindow from '@/components/apps/opaint/OpaintWindow.vue';
 import OmonitorWindow from '@/components/apps/omonitor/OmonitorWindow.vue';
 import OplannerWindow from '@/components/apps/oplanner/OplannerWindow.vue';
+import CustomizationWindow from '@/components/apps/customization/CustomizationWindow.vue';
 import oxplorerSvg from '@/assets/oxplorer.svg';
 import onotesSvg from '@/assets/onotes.svg';
 import osheetsSvg from '@/assets/osheets.svg';
@@ -19,16 +21,22 @@ import opdfSvg from '@/assets/opdf.svg';
 import opaintSvg from '@/assets/opaint.svg';
 import omonitorSvg from '@/assets/omonitor.svg';
 import oplannerSvg from '@/assets/oplanner.svg';
+import customizationSvg from '@/assets/customization.svg';
 import SecurityModal from '@/components/common/SecurityModal.vue';
 
 const winStore = useWindowStore();
 const desktopStore = useDesktopStore();
 const fs = useFileSystemStore();
+const customStore = useCustomizationStore();
 const workspaceRef = useTemplateRef<HTMLElement>('workspaceRef');
 
+// --- CONSTANTES DE CUADRÍCULA ESTILO WINDOWS (Snap to Grid) ---
+const GRID_CELL_WIDTH = 92;
+const GRID_CELL_HEIGHT = 96;
+const GRID_OFFSET_X = 20;
+const GRID_OFFSET_Y = 20;
 const ICON_WIDTH = 84;
 const ICON_HEIGHT = 86;
-const COLLISION_PADDING = 6; // Margen mínimo de separación entre iconos
 
 // Definición de las aplicaciones principales del sistema en el Escritorio
 interface AppShortcut {
@@ -37,24 +45,26 @@ interface AppShortcut {
   icon: string;
   x: number;
   y: number;
-  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf' | 'opaint' | 'omonitor' | 'oplanner';
+  windowId: 'oxplorer' | 'onotes' | 'osheets' | 'opics' | 'opdf' | 'opaint' | 'omonitor' | 'oplanner' | 'customization';
 }
 
 const appShortcuts = ref<AppShortcut[]>([
-  { id: 'app_oxplorer', name: 'Oxplorer', icon: oxplorerSvg, x: 24, y: 24, windowId: 'oxplorer' },
-  { id: 'app_onotes', name: 'Onotes', icon: onotesSvg, x: 24, y: 120, windowId: 'onotes' },
-  { id: 'app_osheets', name: 'Osheets', icon: osheetsSvg, x: 24, y: 216, windowId: 'osheets' },
-  { id: 'app_opics', name: 'Opics', icon: opicsSvg, x: 24, y: 312, windowId: 'opics' },
-  { id: 'app_opdf', name: 'Opdf', icon: opdfSvg, x: 24, y: 408, windowId: 'opdf' },
-  { id: 'app_opaint', name: 'Opaint', icon: opaintSvg, x: 24, y: 504, windowId: 'opaint' },
-  { id: 'app_omonitor', name: 'Omonitor', icon: omonitorSvg, x: 24, y: 600, windowId: 'omonitor' },
-  { id: 'app_oplanner', name: 'Oplanner', icon: oplannerSvg, x: 24, y: 696, windowId: 'oplanner' },
+  { id: 'app_oxplorer', name: 'Oxplorer', icon: oxplorerSvg, x: 20, y: 20, windowId: 'oxplorer' },
+  { id: 'app_onotes', name: 'Onotes', icon: onotesSvg, x: 20, y: 116, windowId: 'onotes' },
+  { id: 'app_osheets', name: 'Osheets', icon: osheetsSvg, x: 20, y: 212, windowId: 'osheets' },
+  { id: 'app_opics', name: 'Opics', icon: opicsSvg, x: 20, y: 308, windowId: 'opics' },
+  { id: 'app_opdf', name: 'Opdf', icon: opdfSvg, x: 20, y: 404, windowId: 'opdf' },
+  { id: 'app_opaint', name: 'Opaint', icon: opaintSvg, x: 20, y: 500, windowId: 'opaint' },
+  { id: 'app_omonitor', name: 'Omonitor', icon: omonitorSvg, x: 20, y: 596, windowId: 'omonitor' },
+  { id: 'app_oplanner', name: 'Oplanner', icon: oplannerSvg, x: 20, y: 692, windowId: 'oplanner' },
+  { id: 'app_customization', name: 'Personalización', icon: customizationSvg, x: 112, y: 20, windowId: 'customization' },
 ]);
 
-// Control de arrastre y estado de colisión en tiempo real
+// Control de arrastre y estado de celda objetivo
 const activeDragId = ref<string | null>(null);
 const isActuallyDragging = ref(false);
 const isCurrentlyColliding = ref(false);
+const hoverGridSlot = ref<{ col: number; row: number; x: number; y: number } | null>(null);
 
 interface DropFolderTarget {
   id: string;
@@ -68,56 +78,120 @@ let initialTargetX = 0;
 let initialTargetY = 0;
 let hasMoved = false;
 
-// --- MOTOR DE COLISIONES (AABB) ---
+// --- MOTOR DE CUADRÍCULA ESTILO WINDOWS ---
 function getDesktopBounds() {
   const bounds = workspaceRef.value?.getBoundingClientRect();
+  const width = bounds ? bounds.width : (typeof window !== 'undefined' ? window.innerWidth : 1200);
+  const height = bounds ? bounds.height : (typeof window !== 'undefined' ? window.innerHeight - 50 : 800);
+  const maxCols = Math.max(1, Math.floor((width - GRID_OFFSET_X) / GRID_CELL_WIDTH));
+  const maxRows = Math.max(1, Math.floor((height - GRID_OFFSET_Y) / GRID_CELL_HEIGHT));
   return {
-    maxW: bounds ? bounds.width - ICON_WIDTH - 12 : window.innerWidth - ICON_WIDTH - 12,
-    maxH: bounds ? bounds.height - ICON_HEIGHT - 12 : window.innerHeight - ICON_HEIGHT - 62,
+    width,
+    height,
+    maxW: Math.max(12, width - ICON_WIDTH - 12),
+    maxH: Math.max(12, height - ICON_HEIGHT - 12),
+    maxCols,
+    maxRows,
   };
 }
 
-function getAllObstacles(excludeId: string | null) {
-  const obstacles: { id: string; x: number; y: number }[] = [];
+// Convierte cualquier coordenada en píxeles al índice de celda y coordenadas acopladas a la cuadrícula
+function snapToGridCoords(px: number, py: number): { col: number; row: number; x: number; y: number } {
+  const { maxCols, maxRows } = getDesktopBounds();
+  let col = Math.round((px - GRID_OFFSET_X) / GRID_CELL_WIDTH);
+  let row = Math.round((py - GRID_OFFSET_Y) / GRID_CELL_HEIGHT);
+  col = Math.max(0, Math.min(maxCols - 1, col));
+  row = Math.max(0, Math.min(maxRows - 1, row));
+  return {
+    col,
+    row,
+    x: GRID_OFFSET_X + col * GRID_CELL_WIDTH,
+    y: GRID_OFFSET_Y + row * GRID_CELL_HEIGHT,
+  };
+}
+
+// Comprueba si una celda (col, row) ya está ocupada por otro icono
+function isGridSlotOccupied(col: number, row: number, excludeId: string | null): boolean {
+  const targetX = GRID_OFFSET_X + col * GRID_CELL_WIDTH;
+  const targetY = GRID_OFFSET_Y + row * GRID_CELL_HEIGHT;
 
   for (const app of appShortcuts.value) {
     if (app.id !== excludeId) {
-      obstacles.push({ id: app.id, x: app.x, y: app.y });
+      if (Math.abs(app.x - targetX) < 40 && Math.abs(app.y - targetY) < 40) {
+        return true;
+      }
     }
   }
 
   for (const item of desktopStore.items) {
     if (item.id !== excludeId) {
-      obstacles.push({ id: item.id, x: item.x ?? 24, y: item.y ?? 120 });
+      const ix = item.x ?? 20;
+      const iy = item.y ?? 20;
+      if (Math.abs(ix - targetX) < 40 && Math.abs(iy - targetY) < 40) {
+        return true;
+      }
     }
   }
 
-  return obstacles;
+  return false;
 }
 
-function isColliding(x: number, y: number, excludeId: string | null): boolean {
-  const obstacles = getAllObstacles(excludeId);
-  const w = ICON_WIDTH + COLLISION_PADDING;
-  const h = ICON_HEIGHT + COLLISION_PADDING;
+// Búsqueda inteligente de la celda de cuadrícula libre más cercana para evitar solapamientos
+function findFreeGridSlotNear(targetCol: number, targetRow: number, excludeId: string | null): { col: number; row: number; x: number; y: number } {
+  const { maxCols, maxRows } = getDesktopBounds();
 
-  return obstacles.some((obs) => {
-    return (
-      x < obs.x + w &&
-      x + w > obs.x &&
-      y < obs.y + h &&
-      y + h > obs.y
-    );
-  });
+  if (!isGridSlotOccupied(targetCol, targetRow, excludeId)) {
+    return {
+      col: targetCol,
+      row: targetRow,
+      x: GRID_OFFSET_X + targetCol * GRID_CELL_WIDTH,
+      y: GRID_OFFSET_Y + targetRow * GRID_CELL_HEIGHT,
+    };
+  }
+
+  // Búsqueda espiral discreta celda a celda
+  for (let radius = 1; radius < Math.max(maxCols, maxRows) + 5; radius++) {
+    for (let dc = -radius; dc <= radius; dc++) {
+      for (let dr = -radius; dr <= radius; dr++) {
+        if (Math.abs(dc) !== radius && Math.abs(dr) !== radius) continue;
+        const c = targetCol + dc;
+        const r = targetRow + dr;
+        if (c >= 0 && c < maxCols && r >= 0 && r < maxRows) {
+          if (!isGridSlotOccupied(c, r, excludeId)) {
+            return {
+              col: c,
+              row: r,
+              x: GRID_OFFSET_X + c * GRID_CELL_WIDTH,
+              y: GRID_OFFSET_Y + r * GRID_CELL_HEIGHT,
+            };
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    col: targetCol,
+    row: targetRow,
+    x: GRID_OFFSET_X + targetCol * GRID_CELL_WIDTH,
+    y: GRID_OFFSET_Y + targetRow * GRID_CELL_HEIGHT,
+  };
 }
 
-// Comprueba si unas coordenadas caen sobre una carpeta del escritorio
+function findFreeGridPosition(clickX: number, clickY: number, excludeId: string | null): { x: number; y: number } {
+  const snapped = snapToGridCoords(clickX, clickY);
+  const free = findFreeGridSlotNear(snapped.col, snapped.row, excludeId);
+  return { x: free.x, y: free.y };
+}
+
+// Comprueba si unas coordenadas caen sobre una carpeta del escritorio para meter archivos
 function findFolderUnder(x: number, y: number, excludeId: string): DesktopItem | null {
   const w = ICON_WIDTH;
   const h = ICON_HEIGHT;
   for (const item of desktopStore.items) {
     if (item.id !== excludeId && item.is_directory) {
-      const ix = item.x ?? 24;
-      const iy = item.y ?? 120;
+      const ix = item.x ?? 20;
+      const iy = item.y ?? 20;
       if (
         x < ix + w &&
         x + w > ix &&
@@ -131,44 +205,37 @@ function findFolderUnder(x: number, y: number, excludeId: string): DesktopItem |
   return null;
 }
 
-// Busca la posición libre más cercana en caso de solapamiento
-function findFreePosition(targetX: number, targetY: number, excludeId: string | null): { x: number; y: number } {
-  const { maxW, maxH } = getDesktopBounds();
-  const clampedX = Math.min(Math.max(12, targetX), maxW);
-  const clampedY = Math.min(Math.max(12, targetY), maxH);
+// Auto-reorganizar cuadrícula completa (Estilo Windows Auto-Arrange)
+async function reorganizeGrid() {
+  const { maxRows } = getDesktopBounds();
+  let col = 0;
+  let row = 0;
 
-  if (!isColliding(clampedX, clampedY, excludeId)) {
-    return { x: clampedX, y: clampedY };
-  }
-
-  // Búsqueda radial por pasos para encontrar el hueco adyacente más próximo
-  const step = 20;
-  for (let radius = step; radius < 1200; radius += step) {
-    const candidates = [
-      { x: clampedX, y: clampedY + radius }, // Abajo
-      { x: clampedX + radius, y: clampedY }, // Derecha
-      { x: clampedX, y: clampedY - radius }, // Arriba
-      { x: clampedX - radius, y: clampedY }, // Izquierda
-      { x: clampedX + radius, y: clampedY + radius }, // Diagonal inf-der
-      { x: clampedX - radius, y: clampedY + radius }, // Diagonal inf-izq
-      { x: clampedX + radius, y: clampedY - radius }, // Diagonal sup-der
-      { x: clampedX - radius, y: clampedY - radius }, // Diagonal sup-izq
-    ];
-
-    for (const pos of candidates) {
-      if (pos.x >= 12 && pos.x <= maxW && pos.y >= 12 && pos.y <= maxH) {
-        if (!isColliding(pos.x, pos.y, excludeId)) {
-          return pos;
-        }
-      }
+  // 1. Organizar accesos de aplicaciones
+  for (const app of appShortcuts.value) {
+    app.x = GRID_OFFSET_X + col * GRID_CELL_WIDTH;
+    app.y = GRID_OFFSET_Y + row * GRID_CELL_HEIGHT;
+    row++;
+    if (row >= maxRows) {
+      row = 0;
+      col++;
     }
   }
 
-  // Fallback a su posición original antes de arrastrar
-  return { x: initialTargetX, y: initialTargetY };
+  // 2. Organizar elementos del usuario (carpetas y documentos)
+  for (const item of desktopStore.items) {
+    const targetX = GRID_OFFSET_X + col * GRID_CELL_WIDTH;
+    const targetY = GRID_OFFSET_Y + row * GRID_CELL_HEIGHT;
+    await desktopStore.updatePosition(item.id, targetX, targetY);
+    row++;
+    if (row >= maxRows) {
+      row = 0;
+      col++;
+    }
+  }
 }
 
-// --- EVENTOS DE ARRASTRE ---
+// --- EVENTOS DE ARRASTRE DE ELEMENTOS ---
 function startItemDrag(e: MouseEvent, id: string, currentX: number, currentY: number) {
   if (e.button !== 0) return;
   if (editingItemId.value === id) return;
@@ -177,6 +244,7 @@ function startItemDrag(e: MouseEvent, id: string, currentX: number, currentY: nu
   isActuallyDragging.value = false;
   hasMoved = false;
   isCurrentlyColliding.value = false;
+  hoverGridSlot.value = snapToGridCoords(currentX, currentY);
   startPointerX = e.clientX;
   startPointerY = e.clientY;
   initialTargetX = currentX;
@@ -197,18 +265,21 @@ function onGlobalMouseMove(e: MouseEvent) {
     isActuallyDragging.value = true;
   }
 
-  // Si no ha superado el umbral de movimiento, no desplazar el icono ni bloquear eventos de clic
   if (!isActuallyDragging.value) return;
 
   const { maxW, maxH } = getDesktopBounds();
   const nextX = Math.min(Math.max(12, initialTargetX + deltaX), maxW);
   const nextY = Math.min(Math.max(12, initialTargetY + deltaY), maxH);
 
+  // Calcular la celda magnética correspondiente en tiempo real
+  const snapped = snapToGridCoords(nextX, nextY);
+  hoverGridSlot.value = snapped;
+
   const appTarget = appShortcuts.value.find((a) => a.id === activeDragId.value);
   if (appTarget) {
     appTarget.x = nextX;
     appTarget.y = nextY;
-    isCurrentlyColliding.value = isColliding(nextX, nextY, appTarget.id);
+    isCurrentlyColliding.value = isGridSlotOccupied(snapped.col, snapped.row, appTarget.id);
     return;
   }
 
@@ -221,7 +292,7 @@ function onGlobalMouseMove(e: MouseEvent) {
   // Limpiar clases de hover en Oxplorer
   document.querySelectorAll('.is-drop-hover').forEach((el) => el.classList.remove('is-drop-hover'));
 
-  // 1. Detección debajo del cursor mediante document.elementsFromPoint
+  // Detección debajo del cursor mediante document.elementsFromPoint
   const elements = document.elementsFromPoint(e.clientX, e.clientY);
 
   // A) ¿Está sobre una tarjeta de carpeta en Oxplorer?
@@ -274,9 +345,9 @@ function onGlobalMouseMove(e: MouseEvent) {
     return;
   }
 
-  // Sin carpeta detectada: verificar colisiones con otros archivos
+  // Sin carpeta detectada: verificar si la celda de cuadrícula está ocupada
   hoveredDropFolder.value = null;
-  isCurrentlyColliding.value = isColliding(nextX, nextY, activeDragId.value);
+  isCurrentlyColliding.value = isGridSlotOccupied(snapped.col, snapped.row, activeDragId.value);
 }
 
 async function onGlobalMouseUp() {
@@ -287,7 +358,8 @@ async function onGlobalMouseUp() {
 
     const appTarget = appShortcuts.value.find((a) => a.id === id);
     if (appTarget) {
-      const freePos = findFreePosition(appTarget.x, appTarget.y, appTarget.id);
+      const rawPos = snapToGridCoords(appTarget.x, appTarget.y);
+      const freePos = findFreeGridSlotNear(rawPos.col, rawPos.row, appTarget.id);
       appTarget.x = freePos.x;
       appTarget.y = freePos.y;
     } else {
@@ -301,7 +373,8 @@ async function onGlobalMouseUp() {
             await desktopStore.moveToFolder(id, dropTarget.id);
           }
         } else {
-          const freePos = findFreePosition(targetItem.x ?? 24, targetItem.y ?? 120, id);
+          const rawPos = snapToGridCoords(targetItem.x ?? 20, targetItem.y ?? 20);
+          const freePos = findFreeGridSlotNear(rawPos.col, rawPos.row, id);
           await desktopStore.updatePosition(id, freePos.x, freePos.y);
         }
       }
@@ -312,6 +385,7 @@ async function onGlobalMouseUp() {
   isActuallyDragging.value = false;
   hasMoved = false;
   hoveredDropFolder.value = null;
+  hoverGridSlot.value = null;
   isCurrentlyColliding.value = false;
   window.removeEventListener('mousemove', onGlobalMouseMove);
   window.removeEventListener('mouseup', onGlobalMouseUp);
@@ -335,6 +409,8 @@ function handleAppShortcutDoubleClick(app: AppShortcut) {
     winStore.openWindow('omonitor');
   } else if (app.windowId === 'oplanner') {
     winStore.openWindow('oplanner');
+  } else if (app.windowId === 'customization') {
+    winStore.openWindow('customization');
   } else {
     winStore.openWindow(app.windowId);
   }
@@ -353,13 +429,13 @@ function onDesktopRightClick(e: MouseEvent) {
 }
 
 function handleCreateFolder() {
-  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  const freePos = findFreeGridPosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
   desktopStore.createFolder('Nueva Carpeta', freePos.x, freePos.y);
   closeAllMenus();
 }
 
 function handleCreateNote() {
-  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  const freePos = findFreeGridPosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
   desktopStore.createNote('Nueva Nota.txt', '', freePos.x, freePos.y).then((note) => {
     if (note) {
       winStore.openWindow('onotes', { noteId: note.id });
@@ -369,7 +445,7 @@ function handleCreateNote() {
 }
 
 function handleCreateSheet() {
-  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  const freePos = findFreeGridPosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
   desktopStore.createSheet(
     'Nueva Hoja.csv',
     'id,producto,precio,stock\n1,Teclado Mecánico,79.99,15\n2,Ratón Inalámbrico,39.99,28',
@@ -388,7 +464,7 @@ function handleCreateSheet() {
 }
 
 function handleCreatePdf() {
-  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  const freePos = findFreeGridPosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
   desktopStore.createPdf('Nuevo Documento.pdf', '', freePos.x, freePos.y).then((pdf) => {
     if (pdf) {
       winStore.openWindow('opdf', {
@@ -403,7 +479,7 @@ function handleCreatePdf() {
 }
 
 function handleCreatePaint() {
-  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  const freePos = findFreeGridPosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
   desktopStore.createPaintFile('Nuevo Dibujo.opaint', '', freePos.x, freePos.y).then((paint) => {
     if (paint) {
       winStore.openWindow('opaint', {
@@ -418,7 +494,7 @@ function handleCreatePaint() {
 }
 
 function handleCreatePlanner() {
-  const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+  const freePos = findFreeGridPosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
   desktopStore.createPlannerFile('Nuevo Proyecto.oplanner', '', freePos.x, freePos.y).then((planner) => {
     if (planner) {
       winStore.openWindow('oplanner', {
@@ -515,7 +591,7 @@ async function onSecurityConfirm(payload: { name: string; password: string }) {
       securityError.value = 'Contraseña incorrecta';
     }
   } else if (securityModalMode.value === 'create-secure') {
-    const freePos = findFreePosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
+    const freePos = findFreeGridPosition(desktopMenuPos.value.x, desktopMenuPos.value.y, null);
     securityLoading.value = true;
     await desktopStore.createFolder(payload.name, freePos.x, freePos.y, payload.password);
     securityLoading.value = false;
@@ -677,7 +753,7 @@ async function onDropOnDesktop(e: DragEvent) {
   if (rawData) {
     try {
       const node = JSON.parse(rawData);
-      const freePos = findFreePosition(e.clientX - ICON_WIDTH / 2, e.clientY - ICON_HEIGHT / 2, null);
+      const freePos = findFreeGridPosition(e.clientX - ICON_WIDTH / 2, e.clientY - ICON_HEIGHT / 2, null);
       await fetch(`/api/nodes/${node.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -720,11 +796,18 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
   <main
     ref="workspaceRef"
     class="desktop-workspace"
+    :style="customStore.wallpaperStyle"
     @contextmenu="onDesktopRightClick"
     @click="closeAllMenus"
     @dragover.prevent
     @drop="onDropOnDesktop($event)"
   >
+    <!-- Indicador de cuadrícula magnética estilo Windows durante el arrastre -->
+    <div
+      v-if="isActuallyDragging && hoverGridSlot && !hoveredDropFolder"
+      class="grid-ghost-cell"
+      :style="{ left: `${hoverGridSlot.x}px`, top: `${hoverGridSlot.y}px` }"
+    ></div>
     <!-- Accesos Directos de Aplicaciones del Sistema (Oxplorer, Onotes, Osheets, Opics) -->
     <div
       v-for="app in appShortcuts"
@@ -849,6 +932,13 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
         🖼️ Galería de Fotos (Opics)
       </button>
       <div class="menu-divider"></div>
+      <button class="context-item" @click="reorganizeGrid(); closeAllMenus();">
+        📐 Auto-organizar cuadrícula
+      </button>
+      <button class="context-item" @click="winStore.openWindow('customization'); closeAllMenus();">
+        🎨 Personalizar
+      </button>
+      <div class="menu-divider"></div>
       <button class="context-item" @click="winStore.openWindow('omonitor'); closeAllMenus();">
         📊 Administrador de tareas (Omonitor)
       </button>
@@ -904,6 +994,7 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
     <OpaintWindow v-if="winStore.windows['opaint']?.isOpen" />
     <OmonitorWindow v-if="winStore.windows['omonitor']?.isOpen" />
     <OplannerWindow v-if="winStore.windows['oplanner']?.isOpen" />
+    <CustomizationWindow v-if="winStore.windows['customization']?.isOpen" @reorganize-grid="reorganizeGrid" />
   </main>
 </template>
 
@@ -911,11 +1002,24 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
 .desktop-workspace {
   flex: 1;
   position: relative;
-  background-image: url('@/assets/oogle.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   overflow: hidden;
+  transition: background 0.25s ease-out;
+}
+
+.grid-ghost-cell {
+  position: absolute;
+  width: 84px;
+  height: 86px;
+  border-radius: 8px;
+  border: 2px dashed rgba(56, 189, 248, 0.7);
+  background: rgba(56, 189, 248, 0.12);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
+  pointer-events: none;
+  z-index: 5;
+  transition: all 0.08s ease-out;
 }
 
 .shortcut-item {
