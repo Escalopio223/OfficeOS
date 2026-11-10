@@ -48,7 +48,7 @@ function onFileDragStart(e: DragEvent, item: any) {
 // Abrir carpetas en Oxplorer o abrir archivos en sus apps correspondientes
 function handleItemDoubleClick(item: any) {
   if (item.is_directory) {
-    if (item.is_protected && !fs.isFolderUnlocked(item.id)) {
+    if (item.is_protected) {
       openUnlockModal(item);
       return;
     }

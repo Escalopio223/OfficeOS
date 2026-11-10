@@ -1,7 +1,24 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import type { FileNode, NodesResponse } from '@/types/filesystem';
-import { filesystemEvent, notifyFilesystemChanged, useFileSystemStore } from '@/stores/filesystem';
+import { filesystemEvent, notifyFilesystemChanged } from '@/stores/filesystem';
+
+export const GRID_OFFSET_X = 20;
+export const GRID_OFFSET_Y = 20;
+export const GRID_CELL_WIDTH = 92;
+export const GRID_CELL_HEIGHT = 96;
+
+export const DEFAULT_SYSTEM_APP_POSITIONS: Record<string, { x: number; y: number }> = {
+    app_oxplorer: { x: 20, y: 20 },
+    app_onotes: { x: 20, y: 116 },
+    app_osheets: { x: 20, y: 212 },
+    app_opics: { x: 20, y: 308 },
+    app_opdf: { x: 20, y: 404 },
+    app_opaint: { x: 20, y: 500 },
+    app_omonitor: { x: 20, y: 596 },
+    app_oplanner: { x: 20, y: 692 },
+    app_customization: { x: 112, y: 20 },
+};
 
 export interface DesktopItem extends FileNode {
     type: 'folder' | 'note' | 'oxplorer-node';
@@ -13,8 +30,114 @@ export interface DesktopItem extends FileNode {
 export const useDesktopStore = defineStore('desktop', () => {
     const items = ref<DesktopItem[]>([]);
     const loading = ref(false);
+    const systemAppPositions = ref<Record<string, { x: number; y: number }>>(
+        JSON.parse(JSON.stringify(DEFAULT_SYSTEM_APP_POSITIONS))
+    );
 
-    function toDesktopItem(node: FileNode, defaultX = 24, defaultY = 120): DesktopItem {
+    function setSystemAppPosition(appId: string, x: number, y: number) {
+        systemAppPositions.value[appId] = { x, y };
+    }
+
+    function getGridLimits() {
+        const w = typeof window !== 'undefined' && window.innerWidth > 200 ? window.innerWidth : 1280;
+        const h = typeof window !== 'undefined' && window.innerHeight > 200 ? window.innerHeight - 50 : 800;
+        const maxCols = Math.max(4, Math.floor((w - GRID_OFFSET_X) / GRID_CELL_WIDTH));
+        const maxRows = Math.max(4, Math.floor((h - GRID_OFFSET_Y) / GRID_CELL_HEIGHT));
+        return { maxCols, maxRows };
+    }
+
+    function snapToGrid(px: number, py: number): { col: number; row: number; x: number; y: number } {
+        const { maxCols, maxRows } = getGridLimits();
+        let col = Math.round((px - GRID_OFFSET_X) / GRID_CELL_WIDTH);
+        let row = Math.round((py - GRID_OFFSET_Y) / GRID_CELL_HEIGHT);
+        col = Math.max(0, Math.min(maxCols - 1, col));
+        row = Math.max(0, Math.min(maxRows - 1, row));
+        return {
+            col,
+            row,
+            x: GRID_OFFSET_X + col * GRID_CELL_WIDTH,
+            y: GRID_OFFSET_Y + row * GRID_CELL_HEIGHT,
+        };
+    }
+
+    function isCellOccupied(
+        candidateX: number,
+        candidateY: number,
+        existingItems: DesktopItem[] = items.value,
+        excludeId: string | null = null
+    ): boolean {
+        // 1. Verificar contra aplicaciones del sistema en el escritorio
+        for (const [appId, pos] of Object.entries(systemAppPositions.value)) {
+            if (appId !== excludeId) {
+                if (Math.abs(pos.x - candidateX) < 40 && Math.abs(pos.y - candidateY) < 40) {
+                    return true;
+                }
+            }
+        }
+
+        // 2. Verificar contra otros archivos/carpetas del escritorio
+        for (const item of existingItems) {
+            if (item.id !== excludeId) {
+                const ix = item.x ?? item.pos_x ?? 0;
+                const iy = item.y ?? item.pos_y ?? 0;
+                if (Math.abs(ix - candidateX) < 40 && Math.abs(iy - candidateY) < 40) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // Garantiza que cada archivo o app tenga una coordenada de cuadrícula única y sin colisiones
+    function resolveUniqueGridPosition(
+        preferredX: number | null | undefined = null,
+        preferredY: number | null | undefined = null,
+        existingItems: DesktopItem[] = items.value,
+        excludeId: string | null = null
+    ): { x: number; y: number } {
+        const { maxCols, maxRows } = getGridLimits();
+
+        if (preferredX !== null && preferredX !== undefined && preferredY !== null && preferredY !== undefined) {
+            const snapped = snapToGrid(preferredX, preferredY);
+            if (!isCellOccupied(snapped.x, snapped.y, existingItems, excludeId)) {
+                return { x: snapped.x, y: snapped.y };
+            }
+
+            // Buscar en espiral la celda libre más cercana
+            for (let radius = 1; radius < Math.max(maxCols, maxRows) + 10; radius++) {
+                for (let dc = -radius; dc <= radius; dc++) {
+                    for (let dr = -radius; dr <= radius; dr++) {
+                        if (Math.abs(dc) !== radius && Math.abs(dr) !== radius) continue;
+                        const c = snapped.col + dc;
+                        const r = snapped.row + dr;
+                        if (c >= 0 && c < maxCols && r >= 0 && r < maxRows) {
+                            const cx = GRID_OFFSET_X + c * GRID_CELL_WIDTH;
+                            const cy = GRID_OFFSET_Y + r * GRID_CELL_HEIGHT;
+                            if (!isCellOccupied(cx, cy, existingItems, excludeId)) {
+                                return { x: cx, y: cy };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Búsqueda secuencial por columnas y filas
+        for (let c = 0; c < maxCols + 10; c++) {
+            for (let r = 0; r < maxRows; r++) {
+                const cx = GRID_OFFSET_X + c * GRID_CELL_WIDTH;
+                const cy = GRID_OFFSET_Y + r * GRID_CELL_HEIGHT;
+                if (!isCellOccupied(cx, cy, existingItems, excludeId)) {
+                    return { x: cx, y: cy };
+                }
+            }
+        }
+
+        return { x: GRID_OFFSET_X + GRID_CELL_WIDTH, y: GRID_OFFSET_Y + GRID_CELL_HEIGHT };
+    }
+
+    function toDesktopItem(node: FileNode, defaultX = 112, defaultY = 116): DesktopItem {
         const isDir = Boolean(node.is_directory);
         const isText =
             node.name.endsWith('.txt') ||
@@ -31,43 +154,6 @@ export const useDesktopStore = defineStore('desktop', () => {
         };
     }
 
-    // Calcula una celda libre en la cuadrícula estilo Windows si un nodo se creó sin coordenadas
-    function findFreeGridSlot(existingItems: DesktopItem[], startX = 112, startY = 20): { x: number; y: number } {
-        const cellW = 92;
-        const cellH = 96;
-        const maxRows = Math.max(3, Math.floor(((typeof window !== 'undefined' ? window.innerHeight : 800) - 70) / cellH));
-
-        let col = 0;
-        let row = 0;
-
-        for (let iteration = 0; iteration < 200; iteration++) {
-            const candidateX = startX + col * cellW;
-            const candidateY = startY + row * cellH;
-
-            // Evitar solapamiento con la primera columna de aplicaciones del sistema (col 0: x < 112)
-            const isSystemAppSlot = candidateX < 112;
-
-            const occupied = isSystemAppSlot || existingItems.some((item) => {
-                return (
-                    Math.abs((item.x ?? 0) - candidateX) < 40 &&
-                    Math.abs((item.y ?? 0) - candidateY) < 40
-                );
-            });
-
-            if (!occupied) {
-                return { x: candidateX, y: candidateY };
-            }
-
-            row++;
-            if (row >= maxRows) {
-                row = 0;
-                col++;
-            }
-        }
-
-        return { x: startX, y: startY };
-    }
-
     async function fetchDesktopItems() {
         loading.value = true;
         try {
@@ -78,24 +164,23 @@ export const useDesktopStore = defineStore('desktop', () => {
             const mapped: DesktopItem[] = [];
             const needsPositionSaving: { id: string; x: number; y: number }[] = [];
 
-            for (const node of data.nodes) {
-                if (node.pos_x === null || node.pos_x === undefined || node.pos_y === null || node.pos_y === undefined) {
-                    const freeSlot = findFreeGridSlot(mapped);
-                    const item = toDesktopItem(node, freeSlot.x, freeSlot.y);
-                    item.pos_x = freeSlot.x;
-                    item.pos_y = freeSlot.y;
-                    item.x = freeSlot.x;
-                    item.y = freeSlot.y;
-                    mapped.push(item);
-                    needsPositionSaving.push({ id: node.id, x: freeSlot.x, y: freeSlot.y });
-                } else {
-                    mapped.push(toDesktopItem(node, node.pos_x, node.pos_y));
+            for (const node of (data.nodes || [])) {
+                const validPos = resolveUniqueGridPosition(node.pos_x, node.pos_y, mapped, node.id);
+                const item = toDesktopItem(node, validPos.x, validPos.y);
+                item.pos_x = validPos.x;
+                item.pos_y = validPos.y;
+                item.x = validPos.x;
+                item.y = validPos.y;
+                mapped.push(item);
+
+                if (node.pos_x !== validPos.x || node.pos_y !== validPos.y) {
+                    needsPositionSaving.push({ id: node.id, x: validPos.x, y: validPos.y });
                 }
             }
 
             items.value = mapped;
 
-            // Guardar en segundo plano las posiciones asignadas automáticamente
+            // Guardar en segundo plano las posiciones asignadas o corregidas automáticamente
             for (const saving of needsPositionSaving) {
                 fetch(`/api/nodes/${saving.id}`, {
                     method: 'PATCH',
@@ -103,6 +188,8 @@ export const useDesktopStore = defineStore('desktop', () => {
                     body: JSON.stringify({ pos_x: saving.x, pos_y: saving.y }),
                 }).catch(() => {});
             }
+        } catch {
+            // Ignorar fallos de red o de entorno sin servidor
         } finally {
             loading.value = false;
         }
@@ -111,10 +198,11 @@ export const useDesktopStore = defineStore('desktop', () => {
     async function createNote(
         name = 'Nueva Nota.txt',
         content = '',
-        x = 120,
-        y = 120
+        x?: number | null,
+        y?: number | null
     ): Promise<DesktopItem | null> {
         try {
+            const pos = resolveUniqueGridPosition(x, y, items.value, null);
             const res = await fetch('/api/nodes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -123,14 +211,18 @@ export const useDesktopStore = defineStore('desktop', () => {
                     is_directory: false,
                     content,
                     parentPath: 'root.desktop',
-                    pos_x: x,
-                    pos_y: y,
+                    pos_x: pos.x,
+                    pos_y: pos.y,
                     mime_type: 'text/plain',
                 }),
             });
             if (!res.ok) return null;
             const node: FileNode = await res.json();
-            const newItem = toDesktopItem(node, x, y);
+            const newItem = toDesktopItem(node, pos.x, pos.y);
+            newItem.x = pos.x;
+            newItem.y = pos.y;
+            newItem.pos_x = pos.x;
+            newItem.pos_y = pos.y;
             items.value.push(newItem);
             notifyFilesystemChanged();
             return newItem;
@@ -142,10 +234,11 @@ export const useDesktopStore = defineStore('desktop', () => {
     async function createSheet(
         name = 'Nuevo Documento.csv',
         content = 'id,producto,precio,stock\n1,Teclado Mecánico,79.99,15\n2,Ratón Inalámbrico,39.99,28',
-        x = 120,
-        y = 120
+        x?: number | null,
+        y?: number | null
     ): Promise<DesktopItem | null> {
         try {
+            const pos = resolveUniqueGridPosition(x, y, items.value, null);
             const res = await fetch('/api/nodes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -154,14 +247,18 @@ export const useDesktopStore = defineStore('desktop', () => {
                     is_directory: false,
                     content,
                     parentPath: 'root.desktop',
-                    pos_x: x,
-                    pos_y: y,
+                    pos_x: pos.x,
+                    pos_y: pos.y,
                     mime_type: 'text/csv',
                 }),
             });
             if (!res.ok) return null;
             const node: FileNode = await res.json();
-            const newItem = toDesktopItem(node, x, y);
+            const newItem = toDesktopItem(node, pos.x, pos.y);
+            newItem.x = pos.x;
+            newItem.y = pos.y;
+            newItem.pos_x = pos.x;
+            newItem.pos_y = pos.y;
             items.value.push(newItem);
             notifyFilesystemChanged();
             return newItem;
@@ -173,10 +270,11 @@ export const useDesktopStore = defineStore('desktop', () => {
     async function createPdf(
         name = 'Nuevo Documento.pdf',
         content = '',
-        x = 120,
-        y = 120
+        x?: number | null,
+        y?: number | null
     ): Promise<DesktopItem | null> {
         try {
+            const pos = resolveUniqueGridPosition(x, y, items.value, null);
             let pdfName = name.trim();
             if (!pdfName.toLowerCase().endsWith('.pdf')) {
                 pdfName += '.pdf';
@@ -189,14 +287,18 @@ export const useDesktopStore = defineStore('desktop', () => {
                     is_directory: false,
                     content,
                     parentPath: 'root.desktop',
-                    pos_x: x,
-                    pos_y: y,
+                    pos_x: pos.x,
+                    pos_y: pos.y,
                     mime_type: 'application/pdf',
                 }),
             });
             if (!res.ok) return null;
             const node: FileNode = await res.json();
-            const newItem = toDesktopItem(node, x, y);
+            const newItem = toDesktopItem(node, pos.x, pos.y);
+            newItem.x = pos.x;
+            newItem.y = pos.y;
+            newItem.pos_x = pos.x;
+            newItem.pos_y = pos.y;
             items.value.push(newItem);
             notifyFilesystemChanged();
             return newItem;
@@ -208,10 +310,11 @@ export const useDesktopStore = defineStore('desktop', () => {
     async function createPaintFile(
         name = 'Nuevo Dibujo.opaint',
         content = '',
-        x = 120,
-        y = 120
+        x?: number | null,
+        y?: number | null
     ): Promise<DesktopItem | null> {
         try {
+            const pos = resolveUniqueGridPosition(x, y, items.value, null);
             let paintName = name.trim();
             if (!paintName.toLowerCase().endsWith('.opaint')) {
                 paintName += '.opaint';
@@ -224,14 +327,18 @@ export const useDesktopStore = defineStore('desktop', () => {
                     is_directory: false,
                     content,
                     parentPath: 'root.desktop',
-                    pos_x: x,
-                    pos_y: y,
+                    pos_x: pos.x,
+                    pos_y: pos.y,
                     mime_type: 'application/x-opaint',
                 }),
             });
             if (!res.ok) return null;
             const node: FileNode = await res.json();
-            const newItem = toDesktopItem(node, x, y);
+            const newItem = toDesktopItem(node, pos.x, pos.y);
+            newItem.x = pos.x;
+            newItem.y = pos.y;
+            newItem.pos_x = pos.x;
+            newItem.pos_y = pos.y;
             items.value.push(newItem);
             notifyFilesystemChanged();
             return newItem;
@@ -243,10 +350,11 @@ export const useDesktopStore = defineStore('desktop', () => {
     async function createPlannerFile(
         name = 'Nuevo Proyecto.oplanner',
         content = '',
-        x = 120,
-        y = 120
+        x?: number | null,
+        y?: number | null
     ): Promise<DesktopItem | null> {
         try {
+            const pos = resolveUniqueGridPosition(x, y, items.value, null);
             let plannerName = name.trim();
             if (!plannerName.toLowerCase().endsWith('.oplanner')) {
                 plannerName += '.oplanner';
@@ -259,14 +367,18 @@ export const useDesktopStore = defineStore('desktop', () => {
                     is_directory: false,
                     content,
                     parentPath: 'root.desktop',
-                    pos_x: x,
-                    pos_y: y,
+                    pos_x: pos.x,
+                    pos_y: pos.y,
                     mime_type: 'application/json',
                 }),
             });
             if (!res.ok) return null;
             const node: FileNode = await res.json();
-            const newItem = toDesktopItem(node, x, y);
+            const newItem = toDesktopItem(node, pos.x, pos.y);
+            newItem.x = pos.x;
+            newItem.y = pos.y;
+            newItem.pos_x = pos.x;
+            newItem.pos_y = pos.y;
             items.value.push(newItem);
             notifyFilesystemChanged();
             return newItem;
@@ -277,11 +389,12 @@ export const useDesktopStore = defineStore('desktop', () => {
 
     async function createFolder(
         name = 'Nueva Carpeta',
-        x = 120,
-        y = 220,
+        x?: number | null,
+        y?: number | null,
         password?: string
     ): Promise<DesktopItem | null> {
         try {
+            const pos = resolveUniqueGridPosition(x, y, items.value, null);
             const res = await fetch('/api/nodes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -289,19 +402,19 @@ export const useDesktopStore = defineStore('desktop', () => {
                     name,
                     is_directory: true,
                     parentPath: 'root.desktop',
-                    pos_x: x,
-                    pos_y: y,
+                    pos_x: pos.x,
+                    pos_y: pos.y,
                     password: password || undefined,
                 }),
             });
             if (!res.ok) return null;
             const node: FileNode = await res.json();
-            const newItem = toDesktopItem(node, x, y);
+            const newItem = toDesktopItem(node, pos.x, pos.y);
+            newItem.x = pos.x;
+            newItem.y = pos.y;
+            newItem.pos_x = pos.x;
+            newItem.pos_y = pos.y;
             items.value.push(newItem);
-            if (password) {
-                const fsStore = useFileSystemStore();
-                fsStore.unlockFolder(node.id);
-            }
             notifyFilesystemChanged();
             return newItem;
         } catch {
@@ -322,7 +435,6 @@ export const useDesktopStore = defineStore('desktop', () => {
             });
             notifyFilesystemChanged();
         } catch {
-            // Revertir si falla
             await fetchDesktopItems();
         }
     }
@@ -353,24 +465,24 @@ export const useDesktopStore = defineStore('desktop', () => {
     }
 
     async function updatePosition(id: string, x: number, y: number) {
+        const validPos = resolveUniqueGridPosition(x, y, items.value, id);
         const item = items.value.find((i) => i.id === id);
         if (item) {
-            item.x = x;
-            item.y = y;
-            item.pos_x = x;
-            item.pos_y = y;
+            item.x = validPos.x;
+            item.y = validPos.y;
+            item.pos_x = validPos.x;
+            item.pos_y = validPos.y;
         }
         try {
             await fetch(`/api/nodes/${id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pos_x: x, pos_y: y }),
+                body: JSON.stringify({ pos_x: validPos.x, pos_y: validPos.y }),
             });
         } catch {}
     }
 
     async function moveToFolder(itemId: string, targetFolderId: string) {
-        // Remover de la vista del escritorio ya que ahora pertenece a una subcarpeta
         items.value = items.value.filter((i) => i.id !== itemId);
         try {
             await fetch(`/api/nodes/${itemId}`, {
@@ -406,6 +518,11 @@ export const useDesktopStore = defineStore('desktop', () => {
     return {
         items,
         loading,
+        systemAppPositions,
+        setSystemAppPosition,
+        snapToGrid,
+        isCellOccupied,
+        resolveUniqueGridPosition,
         fetchDesktopItems,
         createNote,
         createSheet,

@@ -107,14 +107,14 @@ async function runSeed() {
 
   console.log('==> Jerarquía raíz creada.');
 
-  // 5. Poblar /Escritorio (manteniéndolo limpio, con accesos de muestra)
+  // 5. Poblar /Escritorio (en celdas libres de la cuadrícula: columna 1 bajo Personalización)
   const desktopNode = rootFolderMap['Escritorio'];
   const sampleDesktopFiles = [
-    { name: 'Bienvenido.txt', pos_x: 24, pos_y: 24, mime: 'text/plain', size: 1420 },
-    { name: 'Instrucciones_OogleOS.md', pos_x: 24, pos_y: 114, mime: 'text/markdown', size: 2840 },
-    { name: 'Notas_Rapidas.txt', pos_x: 24, pos_y: 204, mime: 'text/plain', size: 850 },
-    { name: 'Resumen_Facturacion_2026.csv', pos_x: 118, pos_y: 24, mime: 'text/csv', size: 4520 },
-    { name: 'Guia_Desarrollo.pdf', pos_x: 118, pos_y: 114, mime: 'application/pdf', size: 12400 },
+    { name: 'Bienvenido.txt', pos_x: 112, pos_y: 116, mime: 'text/plain', size: 1420 },
+    { name: 'Instrucciones_OogleOS.md', pos_x: 112, pos_y: 212, mime: 'text/markdown', size: 2840 },
+    { name: 'Notas_Rapidas.txt', pos_x: 112, pos_y: 308, mime: 'text/plain', size: 850 },
+    { name: 'Resumen_Facturacion_2026.csv', pos_x: 112, pos_y: 404, mime: 'text/csv', size: 4520 },
+    { name: 'Guia_Desarrollo.pdf', pos_x: 112, pos_y: 500, mime: 'application/pdf', size: 12400 },
   ];
 
   for (const f of sampleDesktopFiles) {

@@ -7,6 +7,7 @@ import {
   FONT_PRESETS,
 } from '@/stores/customizationStore';
 import { useWindowStore } from '@/stores/windowStore';
+import { useDesktopStore } from '@/stores/desktopStore';
 
 describe('Customization Suite - Temas, Barra de Tareas, Fondos y Tipografía', () => {
   beforeEach(() => {
@@ -173,5 +174,45 @@ describe('Customization Suite - Temas, Barra de Tareas, Fondos y Tipografía', (
     expect(posCol1Row2.row).toBe(2);
     expect(posCol1Row2.x).toBe(112);
     expect(posCol1Row2.y).toBe(212);
+  });
+
+  it('9. Impide que los archivos compartan coordenada con aplicaciones del sistema o entre sí', () => {
+    const desktopStore = useDesktopStore();
+
+    // Intentar colocar un archivo sobre Oxplorer (20, 20) debe reubicarlo a una celda libre
+    const pos1 = desktopStore.resolveUniqueGridPosition(24, 24, []);
+    expect(pos1.x === 20 && pos1.y === 20).toBe(false);
+
+    // Intentar colocar un archivo sobre Personalización (112, 20) debe reubicarlo a una celda libre
+    const pos2 = desktopStore.resolveUniqueGridPosition(118, 24, []);
+    expect(pos2.x === 112 && pos2.y === 20).toBe(false);
+
+    // Dos archivos que piden la misma celda libre (112, 116) reciben coordenadas distintas
+    const firstFilePos = desktopStore.resolveUniqueGridPosition(112, 116, []);
+    expect(firstFilePos).toEqual({ x: 112, y: 116 });
+
+    const mockExisting = [
+      { id: 'file-1', name: 'Uno.txt', x: firstFilePos.x, y: firstFilePos.y, pos_x: firstFilePos.x, pos_y: firstFilePos.y } as any,
+    ];
+    const secondFilePos = desktopStore.resolveUniqueGridPosition(112, 116, mockExisting);
+    expect(secondFilePos).not.toEqual(firstFilePos);
+  });
+
+  it('10. Detecta celdas ocupadas (en rojo) y solo permite soltar en cuadrículas libres', () => {
+    const desktopStore = useDesktopStore();
+    const existingItems = [
+      { id: 'resumen-csv', name: 'Resumen.csv', x: 112, y: 404, pos_x: 112, pos_y: 404 } as any,
+      { id: 'guia-pdf', name: 'Guia.pdf', x: 112, y: 500, pos_x: 112, pos_y: 500 } as any,
+    ];
+
+    // Intentar soltar 'guia-pdf' en (66, 445) -> snap es (112, 404) que está ocupada por 'resumen-csv'
+    const snappedDrop = desktopStore.snapToGrid(66, 445);
+    expect(snappedDrop.x).toBe(112);
+    expect(snappedDrop.y).toBe(404);
+    expect(desktopStore.isCellOccupied(snappedDrop.x, snappedDrop.y, existingItems, 'guia-pdf')).toBe(true);
+
+    // En cambio, soltar en una celda libre como (204, 404) sí está permitido
+    const freeDrop = desktopStore.snapToGrid(204, 404);
+    expect(desktopStore.isCellOccupied(freeDrop.x, freeDrop.y, existingItems, 'guia-pdf')).toBe(false);
   });
 });

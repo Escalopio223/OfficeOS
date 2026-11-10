@@ -25,8 +25,9 @@ export const useFileSystemStore = defineStore('filesystem', () => {
 
     const hasMore = computed(() => page.value < totalPages.value)
 
-    function isFolderUnlocked(folderId: string): boolean {
-        return unlockedFolderIds.value.has(folderId)
+    function isFolderUnlocked(_folderId: string): boolean {
+        // Las carpetas protegidas siempre deben solicitar contraseña al entrar
+        return false
     }
 
     function unlockFolder(folderId: string) {
@@ -192,7 +193,7 @@ export const useFileSystemStore = defineStore('filesystem', () => {
             const created: FileNode = await res.json()
 
             if (created.is_directory && params.password) {
-                unlockFolder(created.id)
+                // No desbloqueamos de forma persistente para exigir contraseña en cada entrada
             }
 
             // Si se creó en la carpeta abierta en Oxplorer, refrescar lista
@@ -326,7 +327,6 @@ export const useFileSystemStore = defineStore('filesystem', () => {
             if (!res.ok) return false
             const data = await res.json()
             if (data.valid) {
-                unlockFolder(folderId)
                 return true
             }
             return false
@@ -351,7 +351,6 @@ export const useFileSystemStore = defineStore('filesystem', () => {
                 return { success: false, error: errData.error || 'Error al proteger la carpeta' }
             }
             const updated: FileNode = await res.json()
-            unlockFolder(folderId)
             const idx = nodes.value.findIndex((n) => n.id === folderId)
             if (idx !== -1) {
                 nodes.value[idx] = updated

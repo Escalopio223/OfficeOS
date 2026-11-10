@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick, useTemplateRef } from 'vue';
+import { ref, nextTick, onUnmounted, useTemplateRef } from 'vue';
 import { useWindowStore } from '@/stores/windowStore';
 import { useDesktopStore, type DesktopItem } from '@/stores/desktopStore';
 import { useFileSystemStore, notifyFilesystemChanged } from '@/stores/filesystem';
@@ -65,6 +65,21 @@ const activeDragId = ref<string | null>(null);
 const isActuallyDragging = ref(false);
 const isCurrentlyColliding = ref(false);
 const hoverGridSlot = ref<{ col: number; row: number; x: number; y: number } | null>(null);
+const dragPreviewPos = ref<{ x: number; y: number } | null>(null);
+
+function getAppStyle(app: AppShortcut) {
+  if (isActuallyDragging.value && activeDragId.value === app.id && dragPreviewPos.value) {
+    return { left: `${dragPreviewPos.value.x}px`, top: `${dragPreviewPos.value.y}px` };
+  }
+  return { left: `${app.x}px`, top: `${app.y}px` };
+}
+
+function getItemStyle(item: DesktopItem) {
+  if (isActuallyDragging.value && activeDragId.value === item.id && dragPreviewPos.value) {
+    return { left: `${dragPreviewPos.value.x}px`, top: `${dragPreviewPos.value.y}px` };
+  }
+  return { left: `${item.x ?? 112}px`, top: `${item.y ?? 116}px` };
+}
 
 interface DropFolderTarget {
   id: string;
@@ -215,6 +230,7 @@ async function reorganizeGrid() {
   for (const app of appShortcuts.value) {
     app.x = GRID_OFFSET_X + col * GRID_CELL_WIDTH;
     app.y = GRID_OFFSET_Y + row * GRID_CELL_HEIGHT;
+    desktopStore.setSystemAppPosition(app.id, app.x, app.y);
     row++;
     if (row >= maxRows) {
       row = 0;
@@ -236,19 +252,32 @@ async function reorganizeGrid() {
 }
 
 // --- EVENTOS DE ARRASTRE DE ELEMENTOS ---
+function cleanupDragListeners() {
+  window.removeEventListener('mousemove', onGlobalMouseMove);
+  window.removeEventListener('mouseup', onGlobalMouseUp);
+}
+
+onUnmounted(() => {
+  cleanupDragListeners();
+});
+
 function startItemDrag(e: MouseEvent, id: string, currentX: number, currentY: number) {
   if (e.button !== 0) return;
   if (editingItemId.value === id) return;
 
+  cleanupDragListeners();
+
+  const snappedStart = snapToGridCoords(currentX, currentY);
   activeDragId.value = id;
   isActuallyDragging.value = false;
   hasMoved = false;
   isCurrentlyColliding.value = false;
-  hoverGridSlot.value = snapToGridCoords(currentX, currentY);
+  hoverGridSlot.value = snappedStart;
+  dragPreviewPos.value = { x: snappedStart.x, y: snappedStart.y };
   startPointerX = e.clientX;
   startPointerY = e.clientY;
-  initialTargetX = currentX;
-  initialTargetY = currentY;
+  initialTargetX = snappedStart.x;
+  initialTargetY = snappedStart.y;
 
   window.addEventListener('mousemove', onGlobalMouseMove);
   window.addEventListener('mouseup', onGlobalMouseUp);
@@ -271,22 +300,17 @@ function onGlobalMouseMove(e: MouseEvent) {
   const nextX = Math.min(Math.max(12, initialTargetX + deltaX), maxW);
   const nextY = Math.min(Math.max(12, initialTargetY + deltaY), maxH);
 
+  // Actualizar únicamente la posición de previsualización flotante (nunca mutar item.x/y ni app.x/y con píxeles libres)
+  dragPreviewPos.value = { x: nextX, y: nextY };
+
   // Calcular la celda magnética correspondiente en tiempo real
   const snapped = snapToGridCoords(nextX, nextY);
   hoverGridSlot.value = snapped;
 
   const appTarget = appShortcuts.value.find((a) => a.id === activeDragId.value);
   if (appTarget) {
-    appTarget.x = nextX;
-    appTarget.y = nextY;
     isCurrentlyColliding.value = isGridSlotOccupied(snapped.col, snapped.row, appTarget.id);
     return;
-  }
-
-  const targetItem = desktopStore.items.find((i) => i.id === activeDragId.value);
-  if (targetItem) {
-    targetItem.x = nextX;
-    targetItem.y = nextY;
   }
 
   // Limpiar clases de hover en Oxplorer
@@ -351,44 +375,54 @@ function onGlobalMouseMove(e: MouseEvent) {
 }
 
 async function onGlobalMouseUp() {
+  cleanupDragListeners();
   document.querySelectorAll('.is-drop-hover').forEach((el) => el.classList.remove('is-drop-hover'));
 
-  if (activeDragId.value && isActuallyDragging.value) {
-    const id = activeDragId.value;
-
-    const appTarget = appShortcuts.value.find((a) => a.id === id);
-    if (appTarget) {
-      const rawPos = snapToGridCoords(appTarget.x, appTarget.y);
-      const freePos = findFreeGridSlotNear(rawPos.col, rawPos.row, appTarget.id);
-      appTarget.x = freePos.x;
-      appTarget.y = freePos.y;
-    } else {
-      const targetItem = desktopStore.items.find((i) => i.id === id);
-      if (targetItem) {
-        if (hoveredDropFolder.value) {
-          const dropTarget = hoveredDropFolder.value;
-          if (dropTarget.type === 'oxplorer-node' || dropTarget.type === 'oxplorer-content') {
-            await fs.moveNode(id, dropTarget.id);
-          } else {
-            await desktopStore.moveToFolder(id, dropTarget.id);
-          }
-        } else {
-          const rawPos = snapToGridCoords(targetItem.x ?? 20, targetItem.y ?? 20);
-          const freePos = findFreeGridSlotNear(rawPos.col, rawPos.row, id);
-          await desktopStore.updatePosition(id, freePos.x, freePos.y);
-        }
-      }
-    }
-  }
+  const id = activeDragId.value;
+  const wasDragging = isActuallyDragging.value;
+  const dropFolder = hoveredDropFolder.value;
+  const finalPreview = dragPreviewPos.value ? { ...dragPreviewPos.value } : null;
 
   activeDragId.value = null;
   isActuallyDragging.value = false;
   hasMoved = false;
   hoveredDropFolder.value = null;
   hoverGridSlot.value = null;
+  dragPreviewPos.value = null;
   isCurrentlyColliding.value = false;
-  window.removeEventListener('mousemove', onGlobalMouseMove);
-  window.removeEventListener('mouseup', onGlobalMouseUp);
+
+  if (id && wasDragging && finalPreview) {
+    const rawPos = snapToGridCoords(finalPreview.x, finalPreview.y);
+
+    const appTarget = appShortcuts.value.find((a) => a.id === id);
+    if (appTarget) {
+      // Solo mover si la cuadrícula destino está libre (si está en rojo/ocupada, se descarta y conserva su celda original)
+      if (!isGridSlotOccupied(rawPos.col, rawPos.row, appTarget.id)) {
+        appTarget.x = rawPos.x;
+        appTarget.y = rawPos.y;
+        desktopStore.setSystemAppPosition(appTarget.id, rawPos.x, rawPos.y);
+      }
+      return;
+    }
+
+    const targetItem = desktopStore.items.find((i) => i.id === id);
+    if (targetItem) {
+      if (dropFolder) {
+        if (dropFolder.type === 'oxplorer-node' || dropFolder.type === 'oxplorer-content') {
+          await fs.moveNode(id, dropFolder.id);
+        } else {
+          await desktopStore.moveToFolder(id, dropFolder.id);
+        }
+      } else if (!isGridSlotOccupied(rawPos.col, rawPos.row, id)) {
+        // Solo colocar si la cuadrícula destino está libre; si está ocupada (en rojo), no se permite y permanece en su celda
+        targetItem.x = rawPos.x;
+        targetItem.y = rawPos.y;
+        targetItem.pos_x = rawPos.x;
+        targetItem.pos_y = rawPos.y;
+        await desktopStore.updatePosition(id, rawPos.x, rawPos.y);
+      }
+    }
+  }
 }
 
 function handleAppShortcutDoubleClick(app: AppShortcut) {
@@ -626,9 +660,9 @@ async function onSecurityConfirm(payload: { name: string; password: string }) {
 function handleItemDoubleClick(item: DesktopItem) {
   if (isActuallyDragging.value || editingItemId.value === item.id) return;
 
-  // Si es carpeta, verificar si está protegida
+  // Si es carpeta, verificar si está protegida (siempre pide contraseña en cada entrada)
   if (item.is_directory) {
-    if (item.is_protected && !fs.isFolderUnlocked(item.id)) {
+    if (item.is_protected) {
       openUnlockModal(item);
       return;
     }
@@ -806,6 +840,7 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
     <div
       v-if="isActuallyDragging && hoverGridSlot && !hoveredDropFolder"
       class="grid-ghost-cell"
+      :class="{ 'is-invalid': isCurrentlyColliding }"
       :style="{ left: `${hoverGridSlot.x}px`, top: `${hoverGridSlot.y}px` }"
     ></div>
     <!-- Accesos Directos de Aplicaciones del Sistema (Oxplorer, Onotes, Osheets, Opics) -->
@@ -817,8 +852,9 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
         'is-dragging': isActuallyDragging && activeDragId === app.id,
         'is-overlapping': isActuallyDragging && activeDragId === app.id && isCurrentlyColliding
       }"
-      :style="{ left: `${app.x}px`, top: `${app.y}px` }"
+      :style="getAppStyle(app)"
       @mousedown="startItemDrag($event, app.id, app.x, app.y)"
+      @dragstart.prevent
       @dblclick="handleAppShortcutDoubleClick(app)"
     >
       <img :src="app.icon" :alt="app.name" class="shortcut-icon" draggable="false" />
@@ -837,8 +873,9 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
       }"
       :data-id="item.id"
       :data-is-dir="item.is_directory ? 'true' : 'false'"
-      :style="{ left: `${item.x ?? 24}px`, top: `${item.y ?? 120}px` }"
-      @mousedown="startItemDrag($event, item.id, item.x ?? 24, item.y ?? 120)"
+      :style="getItemStyle(item)"
+      @mousedown="startItemDrag($event, item.id, item.x ?? 112, item.y ?? 116)"
+      @dragstart.prevent
       @dblclick="handleItemDoubleClick(item)"
       @contextmenu="onItemRightClick($event, item)"
       @dragover.prevent
@@ -1020,6 +1057,12 @@ async function onDropOnFolderIcon(e: DragEvent, targetFolderId: string) {
   pointer-events: none;
   z-index: 5;
   transition: all 0.08s ease-out;
+}
+
+.grid-ghost-cell.is-invalid {
+  border-color: rgba(248, 113, 113, 0.85);
+  background: rgba(239, 68, 68, 0.16);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.35);
 }
 
 .shortcut-item {
